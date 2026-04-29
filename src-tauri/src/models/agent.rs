@@ -6,6 +6,7 @@ use std::fmt;
 pub enum AgentType {
     ClaudeCode,
     Codex,
+    GenericAgent,
     OpenCode,
     Gemini,
     OpenClaw,
@@ -17,6 +18,7 @@ impl fmt::Display for AgentType {
         match self {
             AgentType::ClaudeCode => write!(f, "Claude Code"),
             AgentType::Codex => write!(f, "Codex CLI"),
+            AgentType::GenericAgent => write!(f, "GenericAgent"),
             AgentType::OpenCode => write!(f, "OpenCode"),
             AgentType::Gemini => write!(f, "Gemini CLI"),
             AgentType::OpenClaw => write!(f, "OpenClaw"),

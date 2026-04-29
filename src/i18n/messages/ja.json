@@ -1699,7 +1699,9 @@
         "emptyConversation": "この会話にはメッセージがありません。",
         "systemMessage": "システムメッセージ",
         "copyMessage": "コピー",
-        "copied": "コピー済み"
+        "copied": "コピー済み",
+        "turnLabel": "ターン {number}",
+        "toolCallCount": "{count} ツール呼び出し"
       },
       "liveTurnStats": {
         "thinking": "考え中...",

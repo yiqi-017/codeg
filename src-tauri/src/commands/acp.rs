@@ -140,6 +140,16 @@ pub(crate) fn is_cmd_available(cmd: &str) -> bool {
 pub(crate) fn verify_agent_installed(agent_type: AgentType) -> Result<(), AcpError> {
     let meta = registry::get_agent_meta(agent_type);
     match meta.distribution {
+        registry::AgentDistribution::Local { .. } => {
+            if registry::find_genericagent_python().is_none()
+                || registry::find_genericagent_bridge().is_none()
+            {
+                return Err(AcpError::SdkNotInstalled(
+                    "GenericAgent is not installed. Please make sure Python is in PATH and genericagent_acp_bridge.py is available.".to_string(),
+                ));
+            }
+            Ok(())
+        }
         registry::AgentDistribution::Npx { cmd, .. } => {
             if !is_cmd_available(cmd) {
                 // INVARIANT: the substring "is not installed" is matched
@@ -231,6 +241,15 @@ async fn npm_list_version(
 async fn detect_local_version(agent_type: AgentType) -> Option<String> {
     let meta = registry::get_agent_meta(agent_type);
     match meta.distribution {
+        registry::AgentDistribution::Local { version } => {
+            if registry::find_genericagent_python().is_some()
+                && registry::find_genericagent_bridge().is_some()
+            {
+                Some(version.to_string())
+            } else {
+                None
+            }
+        }
         registry::AgentDistribution::Npx { cmd, package, .. } => {
             if !is_cmd_available(cmd) {
                 return None;
@@ -1428,6 +1447,11 @@ pub(crate) fn skill_storage_spec(agent_type: AgentType) -> Option<SkillStorageSp
             global_dirs: vec![home_dir_or_default().join(".openclaw").join("skills")],
             project_rel_dirs: vec!["skills"],
         }),
+        AgentType::GenericAgent => Some(SkillStorageSpec {
+            kind: SkillStorageKind::SkillDirectoryOnly,
+            global_dirs: vec![home_dir_or_default().join(".agents").join("skills")],
+            project_rel_dirs: vec![".agents/skills"],
+        }),
         AgentType::Cline => Some(SkillStorageSpec {
             kind: SkillStorageKind::SkillDirectoryOnly,
             global_dirs: vec![
@@ -1866,6 +1890,7 @@ fn cascade_update_agent_config(
         AgentType::OpenClaw => {
             // agent_local_config_path returns None for OpenClaw — no-op
         }
+        AgentType::GenericAgent => {}
         AgentType::Codex => {
             let auth_path = codex_auth_json_path();
             let mut auth_obj = if auth_path.exists() {
@@ -2203,6 +2228,17 @@ pub(crate) async fn acp_get_agent_status_core(
         .map_err(|e| AcpError::protocol(e.to_string()))?;
 
     let (available, installed_version) = match &meta.distribution {
+        registry::AgentDistribution::Local { version } => {
+            let installed =
+                if registry::find_genericagent_python().is_some()
+                    && registry::find_genericagent_bridge().is_some()
+                {
+                    Some((*version).to_string())
+                } else {
+                    None
+                };
+            (installed.is_some(), installed)
+        }
         registry::AgentDistribution::Npx { .. } => (
             true,
             setting.as_ref().and_then(|m| m.installed_version.clone()),
@@ -2260,6 +2296,17 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
         let setting = settings_map.get(&agent_type);
         let meta = registry::get_agent_meta(agent_type);
         let (available, dist_type, local_installed_version) = match &meta.distribution {
+            registry::AgentDistribution::Local { version } => {
+                let installed =
+                    if registry::find_genericagent_python().is_some()
+                        && registry::find_genericagent_bridge().is_some()
+                    {
+                        Some((*version).to_string())
+                    } else {
+                        None
+                    };
+                (installed.is_some(), "local", installed)
+            }
             registry::AgentDistribution::Npx { .. } => {
                 // Use DB cached version for fast loading; updated during install/upgrade
                 let cached = setting.and_then(|m| m.installed_version.clone());
@@ -2677,6 +2724,9 @@ pub(crate) async fn acp_download_agent_binary_core(
 
     let meta = registry::get_agent_meta(agent_type);
     let result = match meta.distribution {
+        registry::AgentDistribution::Local { .. } => Err(AcpError::protocol(
+            "download is only supported for binary agents",
+        )),
         registry::AgentDistribution::Binary {
             version,
             cmd,
@@ -2799,6 +2849,20 @@ pub(crate) async fn acp_prepare_npx_agent_core(
 
     let meta = registry::get_agent_meta(agent_type);
     let result = match meta.distribution {
+        registry::AgentDistribution::Local { version } => {
+            let resolved = detect_local_version(agent_type)
+                .await
+                .unwrap_or_else(|| version.to_string());
+            agent_setting_service::set_installed_version(
+                &db.conn,
+                agent_type,
+                Some(resolved.clone()),
+            )
+            .await
+            .map_err(|e| AcpError::protocol(e.to_string()))?;
+            emit_acp_agents_updated(emitter, "local_verified", Some(agent_type));
+            Ok(resolved)
+        }
         registry::AgentDistribution::Npx { package, .. } => {
             let default = agent_setting_service::AgentDefaultInput {
                 agent_type,
@@ -2964,6 +3028,7 @@ pub(crate) async fn acp_uninstall_agent_core(
             registry::AgentDistribution::Binary { .. } => {
                 binary_cache::clear_agent_cache(agent_type)?;
             }
+            registry::AgentDistribution::Local { .. } => {}
             registry::AgentDistribution::Npx { package, .. } => {
                 uninstall_npm_global_package(package).await?;
             }

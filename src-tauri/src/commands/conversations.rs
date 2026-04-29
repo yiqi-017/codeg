@@ -12,6 +12,7 @@ use crate::models::*;
 use crate::parsers::claude::ClaudeParser;
 use crate::parsers::cline::ClineParser;
 use crate::parsers::codex::CodexParser;
+use crate::parsers::genericagent::GenericAgentParser;
 use crate::parsers::gemini::GeminiParser;
 use crate::parsers::openclaw::OpenClawParser;
 use crate::parsers::opencode::OpenCodeParser;
@@ -68,6 +69,7 @@ fn list_conversations_sync(
     let parsers: Vec<(AgentType, Box<dyn AgentParser>)> = vec![
         (AgentType::ClaudeCode, Box::new(ClaudeParser::new())),
         (AgentType::Codex, Box::new(CodexParser::new())),
+        (AgentType::GenericAgent, Box::new(GenericAgentParser::new())),
         (AgentType::OpenCode, Box::new(OpenCodeParser::new())),
         (AgentType::Gemini, Box::new(GeminiParser::new())),
         (AgentType::OpenClaw, Box::new(OpenClawParser::new())),
@@ -169,6 +171,7 @@ pub async fn get_conversation(
         let parser: Box<dyn AgentParser> = match agent_type {
             AgentType::ClaudeCode => Box::new(ClaudeParser::new()),
             AgentType::Codex => Box::new(CodexParser::new()),
+            AgentType::GenericAgent => Box::new(GenericAgentParser::new()),
             AgentType::OpenCode => Box::new(OpenCodeParser::new()),
             AgentType::Gemini => Box::new(GeminiParser::new()),
             AgentType::OpenClaw => Box::new(OpenClawParser::new()),
@@ -303,6 +306,7 @@ pub async fn get_folder_conversation_core(
             let parser: Box<dyn AgentParser> = match at {
                 AgentType::ClaudeCode => Box::new(ClaudeParser::new()),
                 AgentType::Codex => Box::new(CodexParser::new()),
+                AgentType::GenericAgent => Box::new(GenericAgentParser::new()),
                 AgentType::OpenCode => Box::new(OpenCodeParser::new()),
                 AgentType::Gemini => Box::new(GeminiParser::new()),
                 AgentType::OpenClaw => Box::new(OpenClawParser::new()),

@@ -1699,7 +1699,9 @@
         "emptyConversation": "Keine Nachrichten in dieser Unterhaltung.",
         "systemMessage": "Systemnachricht",
         "copyMessage": "Kopieren",
-        "copied": "Kopiert"
+        "copied": "Kopiert",
+        "turnLabel": "Runde {number}",
+        "toolCallCount": "{count} Toolaufrufe"
       },
       "liveTurnStats": {
         "thinking": "Denkt nach...",

@@ -1,4 +1,5 @@
 use crate::models::agent::AgentType;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub enum AgentDistribution {
@@ -19,6 +20,9 @@ pub enum AgentDistribution {
         env: &'static [(&'static str, &'static str)],
         platforms: &'static [PlatformBinary],
     },
+    Local {
+        version: &'static str,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -38,11 +42,53 @@ pub struct AcpAgentMeta {
 impl AcpAgentMeta {
     pub fn registry_version(&self) -> Option<&'static str> {
         match &self.distribution {
-            AgentDistribution::Npx { version, .. } | AgentDistribution::Binary { version, .. } => {
-                Some(*version)
+            AgentDistribution::Npx { version, .. }
+            | AgentDistribution::Binary { version, .. }
+            | AgentDistribution::Local { version } => Some(*version),
+        }
+    }
+}
+
+pub fn genericagent_bridge_override() -> Option<PathBuf> {
+    std::env::var_os("CODEG_GENERICAGENT_BRIDGE").map(PathBuf::from)
+}
+
+pub fn find_genericagent_bridge() -> Option<PathBuf> {
+    if let Some(path) = genericagent_bridge_override() {
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    let rel = Path::new("GenericAgent").join("genericagent_acp_bridge.py");
+    let mut roots = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.push(cwd);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            roots.push(dir.to_path_buf());
+        }
+    }
+
+    for root in roots {
+        for base in root.ancestors() {
+            let candidate = base.join(&rel);
+            if candidate.is_file() {
+                return Some(candidate);
             }
         }
     }
+    None
+}
+
+pub fn find_genericagent_python() -> Option<String> {
+    for cmd in ["python", "py"] {
+        if let Ok(path) = which::which(cmd) {
+            return Some(path.to_string_lossy().to_string());
+        }
+    }
+    None
 }
 
 pub fn current_platform() -> &'static str {
@@ -76,6 +122,7 @@ pub fn all_acp_agents() -> Vec<AgentType> {
     vec![
         AgentType::ClaudeCode,
         AgentType::Codex,
+        AgentType::GenericAgent,
         AgentType::Gemini,
         AgentType::OpenClaw,
         AgentType::OpenCode,
@@ -87,6 +134,7 @@ pub fn registry_id_for(agent_type: AgentType) -> &'static str {
     match agent_type {
         AgentType::ClaudeCode => "claude-acp",
         AgentType::Codex => "codex-acp",
+        AgentType::GenericAgent => "genericagent-local",
         AgentType::Gemini => "gemini",
         AgentType::OpenClaw => "openclaw-acp",
         AgentType::OpenCode => "opencode",
@@ -98,6 +146,7 @@ pub fn from_registry_id(id: &str) -> Option<AgentType> {
     match id {
         "claude-acp" => Some(AgentType::ClaudeCode),
         "codex-acp" => Some(AgentType::Codex),
+        "genericagent-local" => Some(AgentType::GenericAgent),
         "gemini" => Some(AgentType::Gemini),
         "openclaw-acp" => Some(AgentType::OpenClaw),
         "opencode" => Some(AgentType::OpenCode),
@@ -161,6 +210,12 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
                     },
                 ],
             },
+        },
+        AgentType::GenericAgent => AcpAgentMeta {
+            agent_type,
+            name: "GenericAgent",
+            description: "Local ACP bridge for the GenericAgent Python project",
+            distribution: AgentDistribution::Local { version: "0.1.0" },
         },
         AgentType::Gemini => AcpAgentMeta {
             agent_type,

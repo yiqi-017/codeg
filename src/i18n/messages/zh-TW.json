@@ -1699,7 +1699,9 @@
         "emptyConversation": "目前會話暫無訊息。",
         "systemMessage": "系統訊息",
         "copyMessage": "複製",
-        "copied": "已複製"
+        "copied": "已複製",
+        "turnLabel": "第 {number} 輪",
+        "toolCallCount": "{count} 個工具呼叫"
       },
       "liveTurnStats": {
         "thinking": "思考中...",

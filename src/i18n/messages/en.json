@@ -1699,7 +1699,9 @@
         "emptyConversation": "No messages in this conversation.",
         "systemMessage": "System message",
         "copyMessage": "Copy",
-        "copied": "Copied"
+        "copied": "Copied",
+        "turnLabel": "Turn {number}",
+        "toolCallCount": "{count} tool calls"
       },
       "liveTurnStats": {
         "thinking": "Thinking...",

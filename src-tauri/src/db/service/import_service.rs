@@ -9,6 +9,7 @@ use crate::models::{AgentType, ImportResult};
 use crate::parsers::claude::ClaudeParser;
 use crate::parsers::cline::ClineParser;
 use crate::parsers::codex::CodexParser;
+use crate::parsers::genericagent::GenericAgentParser;
 use crate::parsers::gemini::GeminiParser;
 use crate::parsers::openclaw::OpenClawParser;
 use crate::parsers::opencode::OpenCodeParser;
@@ -26,6 +27,7 @@ pub async fn import_local_conversations(
         let parsers: Vec<(AgentType, Box<dyn AgentParser>)> = vec![
             (AgentType::ClaudeCode, Box::new(ClaudeParser::new())),
             (AgentType::Codex, Box::new(CodexParser::new())),
+            (AgentType::GenericAgent, Box::new(GenericAgentParser::new())),
             (AgentType::OpenCode, Box::new(OpenCodeParser::new())),
             (AgentType::Gemini, Box::new(GeminiParser::new())),
             (AgentType::OpenClaw, Box::new(OpenClawParser::new())),

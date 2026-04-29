@@ -775,6 +775,7 @@ fn supported_agents() -> Vec<AgentType> {
     const ALL: &[AgentType] = &[
         AgentType::ClaudeCode,
         AgentType::Codex,
+        AgentType::GenericAgent,
         AgentType::OpenCode,
         AgentType::Gemini,
         AgentType::OpenClaw,

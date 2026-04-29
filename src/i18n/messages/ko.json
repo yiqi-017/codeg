@@ -1699,7 +1699,9 @@
         "emptyConversation": "이 대화에는 메시지가 없습니다.",
         "systemMessage": "시스템 메시지",
         "copyMessage": "복사",
-        "copied": "복사됨"
+        "copied": "복사됨",
+        "turnLabel": "턴 {number}",
+        "toolCallCount": "{count}개 도구 호출"
       },
       "liveTurnStats": {
         "thinking": "생각 중...",

@@ -30,6 +30,7 @@ fn default_enabled(agent_type: AgentType) -> bool {
         agent_type,
         AgentType::ClaudeCode
             | AgentType::Codex
+            | AgentType::GenericAgent
             | AgentType::Gemini
             | AgentType::OpenCode
             | AgentType::OpenClaw

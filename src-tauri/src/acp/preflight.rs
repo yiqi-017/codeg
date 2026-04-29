@@ -64,6 +64,7 @@ pub async fn run_preflight(agent_type: AgentType) -> PreflightResult {
             platforms,
             ..
         } => check_binary_environment(agent_type, version, cmd, platforms).await,
+        AgentDistribution::Local { .. } => check_genericagent_environment().await,
     };
 
     let passed = checks
@@ -76,6 +77,45 @@ pub async fn run_preflight(agent_type: AgentType) -> PreflightResult {
         passed,
         checks,
     }
+}
+
+async fn check_genericagent_environment() -> Vec<CheckItem> {
+    let python = registry::find_genericagent_python();
+    let bridge = registry::find_genericagent_bridge();
+    vec![
+        match python {
+            Some(ref cmd) => CheckItem {
+                check_id: "python_available".into(),
+                label: "Python".into(),
+                status: CheckStatus::Pass,
+                message: format!("Python available at {cmd}"),
+                fixes: vec![],
+            },
+            None => CheckItem {
+                check_id: "python_available".into(),
+                label: "Python".into(),
+                status: CheckStatus::Fail,
+                message: "Python is not installed or not in PATH".into(),
+                fixes: vec![],
+            },
+        },
+        match bridge {
+            Some(path) => CheckItem {
+                check_id: "bridge_available".into(),
+                label: "GenericAgent ACP bridge".into(),
+                status: CheckStatus::Pass,
+                message: format!("Bridge found at {}", path.display()),
+                fixes: vec![],
+            },
+            None => CheckItem {
+                check_id: "bridge_available".into(),
+                label: "GenericAgent ACP bridge".into(),
+                status: CheckStatus::Fail,
+                message: "genericagent_acp_bridge.py not found; set CODEG_GENERICAGENT_BRIDGE or keep GenericAgent beside codeg".into(),
+                fixes: vec![],
+            },
+        },
+    ]
 }
 
 async fn check_npm_environment(node_required: Option<&str>) -> Vec<CheckItem> {

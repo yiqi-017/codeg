@@ -1,6 +1,7 @@
 pub mod claude;
 pub mod cline;
 pub mod codex;
+pub mod genericagent;
 pub mod gemini;
 pub mod openclaw;
 pub mod opencode;

@@ -1699,7 +1699,9 @@
         "emptyConversation": "لا توجد رسائل في هذه المحادثة.",
         "systemMessage": "رسالة النظام",
         "copyMessage": "نسخ",
-        "copied": "تم النسخ"
+        "copied": "تم النسخ",
+        "turnLabel": "الدور {number}",
+        "toolCallCount": "{count} استدعاءات أدوات"
       },
       "liveTurnStats": {
         "thinking": "جارٍ التفكير...",

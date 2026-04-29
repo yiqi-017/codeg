@@ -1699,7 +1699,9 @@
         "emptyConversation": "Nenhuma mensagem nesta conversa.",
         "systemMessage": "Mensagem do sistema",
         "copyMessage": "Copiar",
-        "copied": "Copiado"
+        "copied": "Copiado",
+        "turnLabel": "Turno {number}",
+        "toolCallCount": "{count} chamadas"
       },
       "liveTurnStats": {
         "thinking": "Pensando...",
