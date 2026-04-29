@@ -1,13 +1,16 @@
 "use client"
 
 import { memo, useMemo, useState } from "react"
-import { ChevronDown, ChevronRight } from "lucide-react"
+import { ChevronDown, ChevronRight, CheckCircle2 } from "lucide-react"
 import { MessageResponse } from "@/components/ai-elements/message"
 import { useTranslations } from "next-intl"
 
 const TURN_MARKER_RE = /(\*{0,2}LLM Running \(Turn \d+\) \.\.\.\*{0,2})/
-const SUMMARY_RE = /<summary>\s*([\s\S]*?)\s*<\/summary>/
+const SUMMARY_RE = /<summary>\s*([\s\S]*?)\s*<\/summary>/g
+const THINKING_RE = /<thinking>([\s\S]*?)<\/thinking>/g
+const TOOL_USE_RE = /<tool_use>[\s\S]*?<\/tool_use>/g
 const BACKTICK_BLOCK_RE = /`{4,}[\s\S]*?`{4,}/g
+const STRAY_XML_RE = /<\/?(?:thinking|summary|tool_use|tool_result)>/g
 
 interface TurnSegment {
   marker: string
@@ -40,11 +43,437 @@ function parseTurnSegments(text: string): TurnSegment[] | null {
 function extractSummary(content: string): string | null {
   const cleaned = content
     .replace(/`{3,}[\s\S]*?`{3,}/g, "")
-    .replace(/<thinking>[\s\S]*?<\/thinking>/g, "")
-  const match = cleaned.match(SUMMARY_RE)
+    .replace(THINKING_RE, "")
+  const match = cleaned.match(/<summary>\s*([\s\S]*?)\s*<\/summary>/)
   if (!match?.[1]) return null
   const line = match[1].trim().split("\n")[0]
   return line.length > 60 ? line.slice(0, 59) + "…" : line
+}
+
+interface ProcessedContent {
+  thinkingBlocks: string[]
+  cleanedContent: string
+  hasEndMarker: boolean
+}
+
+function preprocessTurnContent(content: string): ProcessedContent {
+  const thinkingBlocks: string[] = []
+  let cleaned = content.replace(/\r\n/g, "\n")
+
+  const removedTags: string[] = []
+
+  // Strip 5+ backtick fence marker lines. GenericAgent's agent_loop wraps
+  // every tool handler output in `````...````` pairs. These are rendering
+  // artifacts — remove the marker lines, keep the content between them.
+  const fiveTickLineRe = /^`{5,}\w*$/gm
+  const fiveTickCount = (cleaned.match(fiveTickLineRe) ?? []).length
+  cleaned = cleaned.replace(fiveTickLineRe, "")
+  if (fiveTickCount) removedTags.push(`5-tick lines x${fiveTickCount}`)
+
+  // Extract "[Info] Final response to user." end marker — strip the line
+  // and any trailing junk, render as a styled component instead.
+  const hasEndMarker = /\[Info\] Final response to user\./.test(cleaned)
+  cleaned = cleaned.replace(/\n*\[Info\] Final response to user\.[\s\S]*$/, "")
+
+  cleaned = cleaned.replace(THINKING_RE, (_match, inner) => {
+    const trimmed = (inner as string).trim()
+    if (trimmed) thinkingBlocks.push(trimmed)
+    removedTags.push(`<thinking> (${trimmed.length} chars)`)
+    return ""
+  })
+  const toolUseCount = (cleaned.match(TOOL_USE_RE) ?? []).length
+  cleaned = cleaned.replace(TOOL_USE_RE, "")
+  if (toolUseCount) removedTags.push(`<tool_use> x${toolUseCount}`)
+
+  const summaryCount = (cleaned.match(SUMMARY_RE) ?? []).length
+  cleaned = cleaned.replace(SUMMARY_RE, "")
+  if (summaryCount) removedTags.push(`<summary> x${summaryCount}`)
+
+  const strayCount = (cleaned.match(STRAY_XML_RE) ?? []).length
+  cleaned = cleaned.replace(STRAY_XML_RE, "")
+  if (strayCount) removedTags.push(`stray XML tags x${strayCount}`)
+
+  const emptyFenceCount = (cleaned.match(/`{3,}\s*`{3,}/g) ?? []).length
+  cleaned = cleaned.replace(/`{3,}\s*`{3,}/g, "")
+  if (emptyFenceCount) removedTags.push(`empty fences x${emptyFenceCount}`)
+
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim()
+
+  if (removedTags.length > 0) {
+    console.log("[GA-Renderer] preprocessed:", removedTags.join(", "))
+  }
+
+  return { thinkingBlocks, cleanedContent: cleaned, hasEndMarker }
+}
+
+const ThinkingBlock = memo(function ThinkingBlock({
+  content,
+}: {
+  content: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const preview = content.split("\n")[0]?.trim() ?? ""
+  const short = preview.length > 50 ? preview.slice(0, 49) + "…" : preview
+
+  return (
+    <div className="rounded border border-purple-500/20 bg-purple-500/5 my-1.5">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left text-xs hover:bg-purple-500/10 transition-colors"
+      >
+        {expanded ? (
+          <ChevronDown className="h-3 w-3 shrink-0 text-purple-500" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0 text-purple-500" />
+        )}
+        <span className="font-medium text-purple-600 dark:text-purple-400">
+          Thinking
+        </span>
+        {!expanded && short && (
+          <span className="min-w-0 flex-1 truncate text-muted-foreground/60">
+            {short}
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div className="px-2.5 pb-2 border-t border-purple-500/15">
+          <div className="mt-1.5 text-xs text-muted-foreground whitespace-pre-wrap">
+            {content}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+})
+
+interface ContentSegment {
+  type: "text" | "tool"
+  content: string
+  toolName?: string
+}
+
+function splitToolBlocks(content: string): ContentSegment[] {
+  const toolRe = /^🛠️ Tool: `([^`]+)`.*$/m
+  const segments: ContentSegment[] = []
+  let remaining = content
+
+  while (remaining.length > 0) {
+    const match = remaining.match(toolRe)
+    if (!match || match.index === undefined) {
+      if (remaining.trim()) {
+        segments.push({ type: "text", content: remaining })
+      }
+      break
+    }
+
+    const before = remaining.slice(0, match.index)
+    if (before.trim()) {
+      segments.push({ type: "text", content: before })
+    }
+
+    const afterHeader = remaining.slice(match.index)
+    const nextMatch = afterHeader.slice(1).match(toolRe)
+    const toolBlock = nextMatch?.index !== undefined
+      ? afterHeader.slice(0, nextMatch.index + 1)
+      : afterHeader
+
+    segments.push({
+      type: "tool",
+      content: toolBlock,
+      toolName: match[1],
+    })
+
+    remaining = nextMatch?.index !== undefined
+      ? afterHeader.slice(nextMatch.index + 1)
+      : ""
+  }
+
+  return segments
+}
+
+const ToolBlock = memo(function ToolBlock({
+  content,
+  toolName,
+}: {
+  content: string
+  toolName: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+
+  const statusLine = useMemo(() => {
+    const m = content.match(
+      /\[(?:Status|Action)\]\s*(.+)/
+    )
+    return m?.[1]?.trim() ?? null
+  }, [content])
+
+  return (
+    <div className="rounded border border-blue-500/20 bg-blue-500/5 my-1.5">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left text-xs hover:bg-blue-500/10 transition-colors"
+      >
+        {expanded ? (
+          <ChevronDown className="h-3 w-3 shrink-0 text-blue-500" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0 text-blue-500" />
+        )}
+        <span className="font-medium text-blue-600 dark:text-blue-400">
+          🛠️ {toolName}
+        </span>
+        {!expanded && statusLine && (
+          <span className="min-w-0 flex-1 truncate text-muted-foreground/60">
+            {statusLine}
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div className="px-2.5 pb-2 border-t border-blue-500/15 mt-1.5">
+          {renderTextWithCodeBlocks(content)}
+        </div>
+      )}
+    </div>
+  )
+})
+
+const ACTION_BLOCK_RE =
+  /(\[Action\][^\n]*(?:\n(?!\[Action\]|🛠️ Tool:)[^\n]*)*)/g
+
+const CollapsibleActionBlock = memo(function CollapsibleActionBlock({
+  content,
+}: {
+  content: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const lines = content.split("\n")
+  const lineCount = lines.length
+
+  return (
+    <div className="rounded border border-emerald-500/25 bg-emerald-500/5 my-1.5">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left text-xs hover:bg-emerald-500/10 transition-colors"
+      >
+        {expanded ? (
+          <ChevronDown className="h-3 w-3 shrink-0 text-emerald-500" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0 text-emerald-500" />
+        )}
+        <pre className="min-w-0 flex-1 font-medium text-emerald-600 dark:text-emerald-400 whitespace-pre-wrap break-all">
+          {lines[0]}
+        </pre>
+        {lineCount > 1 && (
+          <span className="shrink-0 text-muted-foreground/50">
+            {lineCount} lines
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <pre className="px-3 pb-2 text-xs overflow-x-auto border-t border-emerald-500/15">
+          <code>{content}</code>
+        </pre>
+      )}
+    </div>
+  )
+})
+
+const CODE_FENCE_RE = /^(`{3,})(\w*)\r?\n([\s\S]*?)\r?\n\1\s*$/gm
+
+interface TextOrCode {
+  type: "text" | "code"
+  content: string
+  lang?: string
+}
+
+function splitCodeBlocks(text: string): TextOrCode[] {
+  const normalized = text.replace(/\r\n/g, "\n")
+  if (normalized.length > 50) {
+    console.log(
+      "[GA-Renderer] splitCodeBlocks input tail:",
+      JSON.stringify(normalized.slice(-100))
+    )
+  }
+  const result: TextOrCode[] = []
+  let lastIndex = 0
+  let matchCount = 0
+
+  for (const m of normalized.matchAll(CODE_FENCE_RE)) {
+    matchCount++
+    const before = normalized.slice(lastIndex, m.index)
+    if (before.trim()) result.push({ type: "text", content: before })
+    result.push({ type: "code", content: m[3], lang: m[2] || undefined })
+    lastIndex = m.index! + m[0].length
+  }
+
+  const after = normalized.slice(lastIndex)
+  if (after.trim()) result.push({ type: "text", content: after })
+
+  if (result.length > 1) {
+    console.log(
+      `[GA-Renderer] splitCodeBlocks: ${matchCount} fences matched, ${result.length} segments`,
+      result.map((s) => ({
+        type: s.type,
+        len: s.content.length,
+        preview: s.content.slice(0, 80),
+        tail: s.content.slice(-40),
+      }))
+    )
+  }
+
+  return result
+}
+
+const CollapsibleCodeBlock = memo(function CollapsibleCodeBlock({
+  content,
+  lang,
+}: {
+  content: string
+  lang?: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const lines = content.split("\n")
+  const lineCount = lines.length
+  const trimmedFirst = content.trimStart()
+
+  const isArgs = lang === "text" && trimmedFirst.startsWith("{")
+  const isAction = /^\[Action\]/.test(trimmedFirst) || /^\[Status\]/.test(trimmedFirst)
+
+  const label = isArgs
+    ? "📥 args"
+    : isAction
+      ? "▶ output"
+      : lines[0]?.trim().slice(0, 60) || (lang ? `${lang}` : "code")
+
+  if (lineCount <= 3 && !isAction) {
+    return (
+      <pre className="my-1.5 rounded border border-border/40 bg-muted/30 px-3 py-2 text-xs overflow-x-auto">
+        <code>{content}</code>
+      </pre>
+    )
+  }
+
+  const borderClass = isAction
+    ? "border-emerald-500/25 bg-emerald-500/5"
+    : "border-border/40 bg-muted/30"
+  const hoverClass = isAction
+    ? "hover:bg-emerald-500/10"
+    : "hover:bg-muted/50"
+  const chevronClass = isAction
+    ? "text-emerald-500"
+    : "text-muted-foreground"
+  const labelClass = isAction
+    ? "font-medium text-emerald-600 dark:text-emerald-400"
+    : "text-muted-foreground"
+
+  return (
+    <div className={`rounded border ${borderClass} my-1.5`}>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className={`flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left text-xs ${hoverClass} transition-colors`}
+      >
+        {expanded ? (
+          <ChevronDown className={`h-3 w-3 shrink-0 ${chevronClass}`} />
+        ) : (
+          <ChevronRight className={`h-3 w-3 shrink-0 ${chevronClass}`} />
+        )}
+        <span className={labelClass}>
+          {label}
+        </span>
+        <span className="shrink-0 text-muted-foreground/50">
+          {lineCount} lines
+        </span>
+      </button>
+      {expanded && (
+        <pre className="px-3 pb-2 text-xs overflow-x-auto border-t border-border/20">
+          <code>{content}</code>
+        </pre>
+      )}
+    </div>
+  )
+})
+
+const FinalResponseMarker = memo(function FinalResponseMarker() {
+  return (
+    <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-border/30">
+      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+      <span className="text-xs font-medium text-muted-foreground/70">
+        Task completed
+      </span>
+    </div>
+  )
+})
+
+function renderTextSegment(text: string, key?: number) {
+  const actionParts = text.split(ACTION_BLOCK_RE)
+  if (actionParts.length <= 1) {
+    return (
+      <div
+        key={key}
+        className="break-words text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside"
+      >
+        <MessageResponse>{text}</MessageResponse>
+      </div>
+    )
+  }
+  return (
+    <div key={key}>
+      {actionParts.map((part, j) =>
+        /^\[Action\]/.test(part) ? (
+          <CollapsibleActionBlock key={j} content={part.trim()} />
+        ) : part.trim() ? (
+          <div
+            key={j}
+            className="break-words text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside"
+          >
+            <MessageResponse>{part}</MessageResponse>
+          </div>
+        ) : null
+      )}
+    </div>
+  )
+}
+
+function renderTextWithCodeBlocks(text: string) {
+  const parts = splitCodeBlocks(text)
+  if (parts.length === 0) return null
+  if (parts.length === 1 && parts[0].type === "text") {
+    return renderTextSegment(text)
+  }
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.type === "code" ? (
+          <CollapsibleCodeBlock key={i} content={p.content} lang={p.lang} />
+        ) : (
+          renderTextSegment(p.content, i)
+        )
+      )}
+    </>
+  )
+}
+
+function renderProcessedContent(content: string) {
+  const segments = splitToolBlocks(content)
+  if (segments.length <= 1 && segments[0]?.type === "text") {
+    return renderTextWithCodeBlocks(content)
+  }
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.type === "tool" ? (
+          <ToolBlock
+            key={`tool-${i}`}
+            content={seg.content}
+            toolName={seg.toolName!}
+          />
+        ) : (
+          <div key={`text-${i}`}>
+            {renderTextWithCodeBlocks(seg.content)}
+          </div>
+        )
+      )}
+    </>
+  )
 }
 
 const CollapsedTurn = memo(function CollapsedTurn({
@@ -65,37 +494,43 @@ const CollapsedTurn = memo(function CollapsedTurn({
     const matches = segment.content.match(/🛠️/g)
     return matches?.length ?? 0
   }, [segment.content])
+  const processed = useMemo(
+    () => preprocessTurnContent(segment.content),
+    [segment.content]
+  )
 
   return (
-    <div className="rounded-md border border-border/40 my-2">
+    <div className="rounded-md border border-border/70 shadow-sm my-2">
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-2 w-full px-3 py-2 text-left text-sm hover:bg-muted/50 transition-colors"
       >
         {expanded ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-foreground/50" />
         ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-foreground/50" />
         )}
-        <span className="text-xs font-medium text-muted-foreground">
+        <span className="text-xs font-semibold text-foreground/70">
           {t("turnLabel", { number: turnIndex })}
         </span>
         {!expanded && summary && (
-          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70">
+          <span className="min-w-0 flex-1 truncate text-xs text-foreground/50">
             {summary}
           </span>
         )}
         {!expanded && toolCount > 0 && (
-          <span className="shrink-0 text-xs text-muted-foreground/50">
+          <span className="shrink-0 text-xs text-foreground/40">
             {t("toolCallCount", { count: toolCount })}
           </span>
         )}
       </button>
       {expanded && (
-        <div className="px-3 pb-3 border-t border-border/20">
-          <div className="mt-2 break-words text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside">
-            <MessageResponse>{segment.content}</MessageResponse>
-          </div>
+        <div className="px-3 pb-3 border-t border-border/40">
+          {processed.thinkingBlocks.map((tb, i) => (
+            <ThinkingBlock key={i} content={tb} />
+          ))}
+          {renderProcessedContent(processed.cleanedContent)}
+          {processed.hasEndMarker && <FinalResponseMarker />}
         </div>
       )}
     </div>
@@ -107,9 +542,14 @@ export const GenericAgentTextRenderer = memo(
     const segments = useMemo(() => parseTurnSegments(text), [text])
 
     if (!segments) {
+      const processed = preprocessTurnContent(text)
       return (
-        <div className="break-words text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside">
-          <MessageResponse>{text}</MessageResponse>
+        <div>
+          {processed.thinkingBlocks.map((tb, i) => (
+            <ThinkingBlock key={i} content={tb} />
+          ))}
+          {renderProcessedContent(processed.cleanedContent)}
+          {processed.hasEndMarker && <FinalResponseMarker />}
         </div>
       )
     }
@@ -117,20 +557,24 @@ export const GenericAgentTextRenderer = memo(
     const lastIdx = segments.length - 1
     return (
       <div>
-        {segments.map((seg, i) =>
-          i < lastIdx ? (
-            <CollapsedTurn key={i} segment={seg} turnIndex={i + 1} />
-          ) : (
+        {segments.map((seg, i) => {
+          if (i < lastIdx) {
+            return <CollapsedTurn key={i} segment={seg} turnIndex={i + 1} />
+          }
+          const processed = preprocessTurnContent(seg.content)
+          return (
             <div key={i}>
               <div className="text-xs font-medium text-muted-foreground px-1 py-1 mt-2">
                 {seg.marker.replace(/\*/g, "")}
               </div>
-              <div className="break-words text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside">
-                <MessageResponse>{seg.content}</MessageResponse>
-              </div>
+              {processed.thinkingBlocks.map((tb, j) => (
+                <ThinkingBlock key={j} content={tb} />
+              ))}
+              {renderProcessedContent(processed.cleanedContent)}
+              {processed.hasEndMarker && <FinalResponseMarker />}
             </div>
           )
-        )}
+        })}
       </div>
     )
   }
