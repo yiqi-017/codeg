@@ -111,7 +111,7 @@ async fn check_genericagent_environment() -> Vec<CheckItem> {
                 check_id: "bridge_available".into(),
                 label: "GenericAgent ACP bridge".into(),
                 status: CheckStatus::Fail,
-                message: "genericagent_acp_bridge.py not found; set CODEG_GENERICAGENT_BRIDGE or keep GenericAgent beside codeg".into(),
+                message: "genericagent_acp_bridge.py not found. See https://github.com/yiqi-017/GenericAgent-codeg/tree/feat/acp-bridge for setup instructions.".into(),
                 fixes: vec![],
             },
         },

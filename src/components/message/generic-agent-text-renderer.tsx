@@ -6,11 +6,13 @@ import { MessageResponse } from "@/components/ai-elements/message"
 import { useTranslations } from "next-intl"
 
 const TURN_MARKER_RE = /(\*{0,2}LLM Running \(Turn \d+\) \.\.\.\*{0,2})/
-const SUMMARY_RE = /<summary>\s*([\s\S]*?)\s*<\/summary>/g
-const THINKING_RE = /<thinking>([\s\S]*?)<\/thinking>/g
-const TOOL_USE_RE = /<tool_use>[\s\S]*?<\/tool_use>/g
+const SUMMARY_RE = /<summary[\s>][\s\S]*?<\/summary\s*>/g
+const THINKING_RE = /<think(?:ing)?[\s>]([\s\S]*?)<\/think(?:ing)?\s*>/g
+const TOOL_USE_RE = /<tool_(?:use|call)[\s>][\s\S]*?<\/tool_(?:use|call)\s*>/g
+const FILE_CONTENT_RE = /<file_content[\s>][\s\S]*?<\/file_content\s*>/g
 const BACKTICK_BLOCK_RE = /`{4,}[\s\S]*?`{4,}/g
-const STRAY_XML_RE = /<\/?(?:thinking|summary|tool_use|tool_result)>/g
+const STRAY_XML_RE =
+  /<\/?(?:think(?:ing)?|summary|tool_(?:use|call|result)|file_content|history|key_info)\s*>/g
 
 interface TurnSegment {
   marker: string
@@ -44,7 +46,7 @@ function extractSummary(content: string): string | null {
   const cleaned = content
     .replace(/`{3,}[\s\S]*?`{3,}/g, "")
     .replace(THINKING_RE, "")
-  const match = cleaned.match(/<summary>\s*([\s\S]*?)\s*<\/summary>/)
+  const match = cleaned.match(/<summary[\s>]\s*([\s\S]*?)\s*<\/summary\s*>/)
   if (!match?.[1]) return null
   const line = match[1].trim().split("\n")[0]
   return line.length > 60 ? line.slice(0, 59) + "…" : line
@@ -85,6 +87,10 @@ function preprocessTurnContent(content: string): ProcessedContent {
   cleaned = cleaned.replace(TOOL_USE_RE, "")
   if (toolUseCount) removedTags.push(`<tool_use> x${toolUseCount}`)
 
+  const fileContentCount = (cleaned.match(FILE_CONTENT_RE) ?? []).length
+  cleaned = cleaned.replace(FILE_CONTENT_RE, "")
+  if (fileContentCount) removedTags.push(`<file_content> x${fileContentCount}`)
+
   const summaryCount = (cleaned.match(SUMMARY_RE) ?? []).length
   cleaned = cleaned.replace(SUMMARY_RE, "")
   if (summaryCount) removedTags.push(`<summary> x${summaryCount}`)
@@ -98,6 +104,12 @@ function preprocessTurnContent(content: string): ProcessedContent {
   if (emptyFenceCount) removedTags.push(`empty fences x${emptyFenceCount}`)
 
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim()
+
+  // Strip internal retry warnings — these are noise, not user-facing content.
+  cleaned = cleaned.replace(
+    /\[Warn\] LLM returned an empty response\. Retrying\.\.\.[\n]*/g,
+    ""
+  ).trim()
 
   if (removedTags.length > 0) {
     console.log("[GA-Renderer] preprocessed:", removedTags.join(", "))
@@ -244,6 +256,7 @@ const CollapsibleActionBlock = memo(function CollapsibleActionBlock({
 }: {
   content: string
 }) {
+  if (!content.trim()) return null
   const [expanded, setExpanded] = useState(false)
   const lines = content.split("\n")
   const lineCount = lines.length
@@ -301,7 +314,9 @@ function splitCodeBlocks(text: string): TextOrCode[] {
     matchCount++
     const before = normalized.slice(lastIndex, m.index)
     if (before.trim()) result.push({ type: "text", content: before })
-    result.push({ type: "code", content: m[3], lang: m[2] || undefined })
+    if (m[3].trim()) {
+      result.push({ type: "code", content: m[3], lang: m[2] || undefined })
+    }
     lastIndex = m.index! + m[0].length
   }
 
@@ -330,6 +345,7 @@ const CollapsibleCodeBlock = memo(function CollapsibleCodeBlock({
   content: string
   lang?: string
 }) {
+  if (!content.trim()) return null
   const [expanded, setExpanded] = useState(false)
   const lines = content.split("\n")
   const lineCount = lines.length
@@ -404,12 +420,13 @@ const FinalResponseMarker = memo(function FinalResponseMarker() {
 })
 
 function renderTextSegment(text: string, key?: number) {
+  if (!text.trim()) return null
   const actionParts = text.split(ACTION_BLOCK_RE)
   if (actionParts.length <= 1) {
     return (
       <div
         key={key}
-        className="break-words text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside"
+        className="break-words text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-outside [&_ol]:list-outside [&_ul]:pl-5 [&_ol]:pl-5"
       >
         <MessageResponse>{text}</MessageResponse>
       </div>
@@ -423,7 +440,7 @@ function renderTextSegment(text: string, key?: number) {
         ) : part.trim() ? (
           <div
             key={j}
-            className="break-words text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside"
+            className="break-words text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-outside [&_ol]:list-outside [&_ul]:pl-5 [&_ol]:pl-5"
           >
             <MessageResponse>{part}</MessageResponse>
           </div>
@@ -453,6 +470,7 @@ function renderTextWithCodeBlocks(text: string) {
 }
 
 function renderProcessedContent(content: string) {
+  if (!content.trim()) return null
   const segments = splitToolBlocks(content)
   if (segments.length <= 1 && segments[0]?.type === "text") {
     return renderTextWithCodeBlocks(content)
@@ -558,10 +576,15 @@ export const GenericAgentTextRenderer = memo(
     return (
       <div>
         {segments.map((seg, i) => {
+          const processed = preprocessTurnContent(seg.content)
+          const isEmpty =
+            !processed.cleanedContent &&
+            processed.thinkingBlocks.length === 0 &&
+            !processed.hasEndMarker
+          if (isEmpty) return null
           if (i < lastIdx) {
             return <CollapsedTurn key={i} segment={seg} turnIndex={i + 1} />
           }
-          const processed = preprocessTurnContent(seg.content)
           return (
             <div key={i}>
               <div className="text-xs font-medium text-muted-foreground px-1 py-1 mt-2">

@@ -145,7 +145,7 @@ pub(crate) fn verify_agent_installed(agent_type: AgentType) -> Result<(), AcpErr
                 || registry::find_genericagent_bridge().is_none()
             {
                 return Err(AcpError::SdkNotInstalled(
-                    "GenericAgent is not installed. Please make sure Python is in PATH and genericagent_acp_bridge.py is available.".to_string(),
+                    "GenericAgent is not installed. See https://github.com/yiqi-017/GenericAgent-codeg/tree/feat/acp-bridge for setup instructions.".to_string(),
                 ));
             }
             Ok(())

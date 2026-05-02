@@ -83,7 +83,14 @@ pub fn find_genericagent_bridge() -> Option<PathBuf> {
 }
 
 pub fn find_genericagent_python() -> Option<String> {
-    for cmd in ["python", "py"] {
+    // Prefer `py` (Python Launcher) on Windows — it resolves to the system
+    // default Python regardless of conda/venv PATH modifications.
+    #[cfg(target_os = "windows")]
+    let candidates = ["py", "python"];
+    #[cfg(not(target_os = "windows"))]
+    let candidates = ["python3", "python"];
+
+    for cmd in candidates {
         if let Ok(path) = which::which(cmd) {
             return Some(path.to_string_lossy().to_string());
         }

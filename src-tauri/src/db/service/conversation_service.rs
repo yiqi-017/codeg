@@ -98,6 +98,20 @@ pub async fn soft_delete(conn: &DatabaseConnection, conversation_id: i32) -> Res
     Ok(())
 }
 
+/// Soft-delete all GenericAgent conversations on startup.
+/// GenericAgent has no persistent session files — its conversations are only
+/// meaningful during the ACP session that created them.
+pub async fn cleanup_genericagent(conn: &DatabaseConnection) -> Result<u64, DbError> {
+    let now = Utc::now();
+    let result = conversation::Entity::update_many()
+        .col_expr(conversation::Column::DeletedAt, sea_orm::sea_query::Expr::value(now))
+        .filter(conversation::Column::DeletedAt.is_null())
+        .filter(conversation::Column::AgentType.eq("generic_agent"))
+        .exec(conn)
+        .await?;
+    Ok(result.rows_affected)
+}
+
 fn parse_agent_type(s: &str) -> AgentType {
     match serde_json::from_value(serde_json::Value::String(s.to_string())) {
         Ok(at) => at,
@@ -207,7 +221,8 @@ pub async fn list_all(
     sort_by: Option<String>,
     status: Option<String>,
 ) -> Result<Vec<DbConversationSummary>, DbError> {
-    let mut query = conversation::Entity::find().filter(conversation::Column::DeletedAt.is_null());
+    let mut query = conversation::Entity::find()
+        .filter(conversation::Column::DeletedAt.is_null());
 
     match folder_ids {
         Some(ids) if !ids.is_empty() => {

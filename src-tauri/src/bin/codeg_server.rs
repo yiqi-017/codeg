@@ -61,6 +61,13 @@ async fn async_main() {
         .await
         .expect("Failed to initialize database");
 
+    // Clean up GenericAgent conversations from previous sessions.
+    match codeg_lib::db::service::conversation_service::cleanup_genericagent(&db.conn).await {
+        Ok(n) if n > 0 => eprintln!("[SERVER] cleaned up {n} GenericAgent conversation(s)"),
+        Ok(_) => {}
+        Err(e) => eprintln!("[SERVER] GenericAgent cleanup failed: {e}"),
+    }
+
     // Create shared broadcaster
     let broadcaster = Arc::new(WebEventBroadcaster::new());
     let emitter = EventEmitter::WebOnly(broadcaster.clone());
