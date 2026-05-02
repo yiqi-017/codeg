@@ -6,13 +6,13 @@ import { MessageResponse } from "@/components/ai-elements/message"
 import { useTranslations } from "next-intl"
 
 const TURN_MARKER_RE = /(\*{0,2}LLM Running \(Turn \d+\) \.\.\.\*{0,2})/
-const SUMMARY_RE = /<summary[\s>][\s\S]*?<\/summary\s*>/g
-const THINKING_RE = /<think(?:ing)?[\s>]([\s\S]*?)<\/think(?:ing)?\s*>/g
-const TOOL_USE_RE = /<tool_(?:use|call)[\s>][\s\S]*?<\/tool_(?:use|call)\s*>/g
-const FILE_CONTENT_RE = /<file_content[\s>][\s\S]*?<\/file_content\s*>/g
+const SUMMARY_RE = /<summary[\s>/][\s\S]*?<\/summary\s*>/gi
+const THINKING_RE = /<think(?:ing)?[\s>/]([\s\S]*?)<\/think(?:ing)?\s*>/gi
+const TOOL_USE_RE = /<tool_(?:use|call)[\s>/][\s\S]*?<\/tool_(?:use|call)\s*>/gi
+const FILE_CONTENT_RE = /<file_content[\s>/][\s\S]*?<\/file_content\s*>/gi
 const BACKTICK_BLOCK_RE = /`{4,}[\s\S]*?`{4,}/g
 const STRAY_XML_RE =
-  /<\/?(?:think(?:ing)?|summary|tool_(?:use|call|result)|file_content|history|key_info)\s*>/g
+  /<\s*\/?\s*(?:think(?:ing)?|summary|tool_(?:use|call|result)|file_content|history|key_info)\s*\/?>/gi
 
 interface TurnSegment {
   marker: string
@@ -46,7 +46,7 @@ function extractSummary(content: string): string | null {
   const cleaned = content
     .replace(/`{3,}[\s\S]*?`{3,}/g, "")
     .replace(THINKING_RE, "")
-  const match = cleaned.match(/<summary[\s>]\s*([\s\S]*?)\s*<\/summary\s*>/)
+  const match = cleaned.match(/<summary[\s>/]\s*([\s\S]*?)\s*<\/summary\s*>/i)
   if (!match?.[1]) return null
   const line = match[1].trim().split("\n")[0]
   return line.length > 60 ? line.slice(0, 59) + "…" : line
@@ -110,6 +110,23 @@ function preprocessTurnContent(content: string): ProcessedContent {
     /\[Warn\] LLM returned an empty response\. Retrying\.\.\.[\n]*/g,
     ""
   ).trim()
+
+  // Strip trailing orphan markdown markers (*, _, **) left after tag/fence removal.
+  cleaned = cleaned.replace(/[\s*_]+$/, "").trim()
+
+  // Remove duplicate tail fragment: when <summary> tag removal fails and
+  // STRAY_XML_RE strips only the tags, the summary content leaks as a short
+  // trailing line that duplicates the end of the previous line (e.g.
+  // "精扫。\n扫。*"). Detect and remove it.
+  const lines = cleaned.split("\n")
+  if (lines.length >= 2) {
+    const last = lines[lines.length - 1].replace(/[*_\s]+$/, "").trim()
+    const prev = lines[lines.length - 2].trim()
+    if (last.length > 0 && last.length <= 30 && prev.endsWith(last)) {
+      lines.pop()
+      cleaned = lines.join("\n").trim()
+    }
+  }
 
   if (removedTags.length > 0) {
     console.log("[GA-Renderer] preprocessed:", removedTags.join(", "))
