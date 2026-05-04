@@ -625,24 +625,27 @@ function reducer(
 
       const session = current ?? createEmptySession(action.conversationId)
 
-      // Guard: prevent stale liveMessage from ACP reconnects overriding
-      // persisted data. When a session has no active liveMessage and no
-      // pending interaction (idle without a live turn), a SET_LIVE_MESSAGE
-      // from a reconnected ACP connection carries the completed response
-      // that is already in localTurns/detail.turns.
-      // Accepting it would cause duplicate assistant text in the timeline.
+      // Guard: prevent stale liveMessage from ACP reconnects or late-arriving
+      // streaming deltas overriding persisted data. Two cases:
+      // 1. Reconnect replay: completed response already in localTurns/detail.
+      // 2. Late delta race: COMPLETE_TURN already promoted liveMessage to
+      //    localTurns, but a final streaming batch arrives afterward.
+      // In both cases the session is idle (no active turn) and liveMessage is
+      // null — accepting would cause duplicate text in the timeline.
       // Also block during cold loading (detailLoading) — the reconnect
       // liveMessage arrives before DB data, causing overlap after fetch.
-      const hasExistingTurns =
-        (session.detail?.turns.length ?? 0) > 0 || session.localTurns.length > 0
       if (
         !action.isLive &&
         action.liveMessage !== null &&
         session.liveMessage === null &&
-        session.syncState !== "awaiting_persist" &&
-        (hasExistingTurns || session.detailLoading)
+        session.syncState !== "awaiting_persist"
       ) {
-        return state
+        const hasExistingTurns =
+          (session.detail?.turns.length ?? 0) > 0 ||
+          session.localTurns.length > 0
+        if (hasExistingTurns || session.detailLoading || session.syncState === "idle") {
+          return state
+        }
       }
 
       return updateSessionInState(state, action.conversationId, () => ({
