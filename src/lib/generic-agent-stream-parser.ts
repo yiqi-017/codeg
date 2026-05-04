@@ -18,7 +18,6 @@ export interface StreamParsedBlock {
 const TURN_RE = /\*{0,2}LLM Running \(Turn (\d+)\)[^*]*\*{0,2}/
 const THINKING_CLOSED_RE = /<think(?:ing)?[\s>]([\s\S]*?)<\/think(?:ing)?\s*>/
 const SUMMARY_RE = /<summary[\s>][\s\S]*?<\/summary\s*>/
-const TOOL_USE_RE = /<tool_(?:use|call)[\s>]([\s\S]*?)<\/tool_(?:use|call)\s*>/
 const FILE_CONTENT_RE = /<file_content[\s>][\s\S]*?<\/file_content\s*>/
 const TOOL_EMOJI_RE =
   /\u{1F6E0}️\s*\*{0,2}(?:正在调用工具:|Tool:)\*{0,2}\s*`?([^`\n]+?)`?\s+📥[^\n]*\n(`{3,})\w*\n([\s\S]*?)\2(?:\n(?!\u{1F6E0}️)(?!`{5,})[^\n]*)*/u
@@ -84,31 +83,6 @@ export function parseStreamBlocks(raw: string): StreamParsedBlock[] {
         idx: fileMatch.index,
         len: fileMatch[0].length,
         block: { type: "tool_output", content: "" },
-      })
-    }
-
-    const toolUseMatch = TOOL_USE_RE.exec(remaining)
-    if (toolUseMatch) {
-      let toolName = "unknown"
-      let toolParams = ""
-      try {
-        const inner = toolUseMatch[1].trim()
-        const nameMatch = /"name"\s*:\s*"([^"]+)"/.exec(inner)
-        const argsMatch = /"arguments"\s*:\s*(\{[\s\S]*\})/.exec(inner)
-        if (nameMatch) toolName = nameMatch[1]
-        if (argsMatch) toolParams = argsMatch[1]
-      } catch {
-        /* ignore parse errors */
-      }
-      candidates.push({
-        idx: toolUseMatch.index,
-        len: toolUseMatch[0].length,
-        block: {
-          type: "tool_call",
-          content: toolUseMatch[0],
-          toolName,
-          toolParams,
-        },
       })
     }
 

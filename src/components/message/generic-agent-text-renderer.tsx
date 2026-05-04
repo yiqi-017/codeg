@@ -646,7 +646,7 @@ const CollapsedTurn = memo(function CollapsedTurn({
           {processed.thinkingBlocks.map((tb, i) => (
             <ThinkingBlock key={i} content={tb} />
           ))}
-          {renderProcessedContent(processed.cleanedContent, onAnswer)}
+          {renderProcessedContent(processed.cleanedContent)}
           {processed.hasEndMarker && <FinalResponseMarker />}
         </div>
       )}
