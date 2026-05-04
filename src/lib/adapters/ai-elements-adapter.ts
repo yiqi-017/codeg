@@ -626,7 +626,7 @@ export function adaptMessageTurn(
   for (let index = 0; index < turn.blocks.length; index++) {
     const block = turn.blocks[index]
 
-    if (turn.role === "assistant" && block.type === "text") {
+    if (turn.role === "assistant" && block.type === "text" && !isStreaming) {
       const expandedParts = expandInlineToolText(
         block.text,
         turn.id,

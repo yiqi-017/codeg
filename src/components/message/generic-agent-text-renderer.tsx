@@ -227,11 +227,15 @@ function splitToolBlocks(content: string): ContentSegment[] {
 export const ToolBlock = memo(function ToolBlock({
   content,
   toolName,
+  onAnswer,
 }: {
   content: string
   toolName: string
+  onAnswer?: (answer: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const [answered, setAnswered] = useState(false)
+  const [customInput, setCustomInput] = useState("")
 
   const isAskUser = /^ask.?user/i.test(toolName)
 
@@ -248,7 +252,7 @@ export const ToolBlock = memo(function ToolBlock({
         typeof parsed.question === "string" ? parsed.question : null
       const candidates: string[] = Array.isArray(parsed.candidates)
         ? (parsed.candidates as string[]).filter(
-            (c: unknown) => typeof c === "string",
+            (c: unknown) => typeof c === "string"
           )
         : []
       if (!question) return null
@@ -264,23 +268,54 @@ export const ToolBlock = memo(function ToolBlock({
   }, [content])
 
   if (questionData) {
+    const handleAnswer = (text: string) => {
+      if (answered || !onAnswer || !text.trim()) return
+      setAnswered(true)
+      onAnswer(text.trim())
+    }
     return (
       <div className="rounded border border-amber-500/25 bg-amber-500/5 my-1.5 px-3 py-2.5 space-y-2">
         <p className="text-sm font-medium">{questionData.question}</p>
         {questionData.candidates.length > 0 && (
           <div className="flex flex-col gap-1.5">
             {questionData.candidates.map((c, i) => (
-              <div
+              <button
                 key={i}
-                className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+                disabled={answered || !onAnswer}
+                onClick={() => handleAnswer(c)}
+                className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-left text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50 disabled:cursor-default"
               >
                 {c}
-              </div>
+              </button>
             ))}
           </div>
         )}
+        {!answered && onAnswer && (
+          <div className="flex gap-2 pt-1">
+            <input
+              type="text"
+              value={customInput}
+              onChange={(e) => setCustomInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  handleAnswer(customInput)
+                }
+              }}
+              placeholder="Or type your own answer…"
+              className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
+            <button
+              disabled={!customInput.trim()}
+              onClick={() => handleAnswer(customInput)}
+              className="rounded-md bg-amber-500/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500 transition-colors disabled:opacity-40"
+            >
+              Send
+            </button>
+          </div>
+        )}
         <div className="text-xs text-muted-foreground/60 italic">
-          Waiting for your answer …
+          {answered ? "Answered" : "Waiting for your answer …"}
         </div>
       </div>
     )
@@ -531,7 +566,10 @@ export function renderTextWithCodeBlocks(text: string) {
   )
 }
 
-function renderProcessedContent(content: string) {
+function renderProcessedContent(
+  content: string,
+  onAnswer?: (answer: string) => void
+) {
   if (!content.trim()) return null
   const segments = splitToolBlocks(content)
   if (segments.length <= 1 && segments[0]?.type === "text") {
@@ -545,6 +583,7 @@ function renderProcessedContent(content: string) {
             key={`tool-${i}`}
             content={seg.content}
             toolName={seg.toolName!}
+            onAnswer={onAnswer}
           />
         ) : (
           <div key={`text-${i}`}>{renderTextWithCodeBlocks(seg.content)}</div>
@@ -607,7 +646,7 @@ const CollapsedTurn = memo(function CollapsedTurn({
           {processed.thinkingBlocks.map((tb, i) => (
             <ThinkingBlock key={i} content={tb} />
           ))}
-          {renderProcessedContent(processed.cleanedContent)}
+          {renderProcessedContent(processed.cleanedContent, onAnswer)}
           {processed.hasEndMarker && <FinalResponseMarker />}
         </div>
       )}
@@ -617,8 +656,10 @@ const CollapsedTurn = memo(function CollapsedTurn({
 
 export const GenericAgentTextRenderer = memo(function GenericAgentTextRenderer({
   text,
+  onAnswer,
 }: {
   text: string
+  onAnswer?: (answer: string) => void
 }) {
   const segments = useMemo(() => parseTurnSegments(text), [text])
 
@@ -629,7 +670,7 @@ export const GenericAgentTextRenderer = memo(function GenericAgentTextRenderer({
         {processed.thinkingBlocks.map((tb, i) => (
           <ThinkingBlock key={i} content={tb} />
         ))}
-        {renderProcessedContent(processed.cleanedContent)}
+        {renderProcessedContent(processed.cleanedContent, onAnswer)}
         {processed.hasEndMarker && <FinalResponseMarker />}
       </div>
     )
@@ -656,7 +697,7 @@ export const GenericAgentTextRenderer = memo(function GenericAgentTextRenderer({
             {processed.thinkingBlocks.map((tb, j) => (
               <ThinkingBlock key={j} content={tb} />
             ))}
-            {renderProcessedContent(processed.cleanedContent)}
+            {renderProcessedContent(processed.cleanedContent, onAnswer)}
             {processed.hasEndMarker && <FinalResponseMarker />}
           </div>
         )

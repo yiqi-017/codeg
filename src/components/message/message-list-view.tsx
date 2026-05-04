@@ -52,6 +52,7 @@ interface MessageListViewProps {
   detailLoading?: boolean
   detailError?: string | null
   hideEmptyState?: boolean
+  onAnswerQuestion?: (answer: string) => void
 }
 
 interface ResolvedMessageGroup {
@@ -166,12 +167,14 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   showStats = true,
   agentType,
   isStreaming = false,
+  onAnswer,
 }: {
   group: ResolvedMessageGroup
   dimmed?: boolean
   showStats?: boolean
   agentType?: import("@/lib/types").AgentType
   isStreaming?: boolean
+  onAnswer?: (answer: string) => void
 }) {
   if (group.role === "system") {
     return <CollapsibleSystemMessage group={group} />
@@ -197,6 +200,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
               role={group.role}
               agentType={agentType}
               isStreaming={isStreaming}
+              onAnswer={onAnswer}
             />
           </MessageContent>
         )}
@@ -264,6 +268,7 @@ export function MessageListView({
   detailLoading = false,
   detailError = null,
   hideEmptyState = false,
+  onAnswerQuestion,
 }: MessageListViewProps) {
   const t = useTranslations("Folder.chat.messageList")
   const sharedT = useTranslations("Folder.chat.shared")
@@ -401,6 +406,7 @@ export function MessageListView({
                 showStats={item.showStats}
                 agentType={agentType}
                 isStreaming={item.phase === "streaming"}
+                onAnswer={onAnswerQuestion}
               />
             </div>
           )
@@ -411,7 +417,7 @@ export function MessageListView({
           return null
       }
     },
-    [agentType]
+    [agentType, onAnswerQuestion]
   )
 
   const emptyState = useMemo(

@@ -795,7 +795,7 @@ const ConversationTabView = memo(function ConversationTabView({
 
   const handleAnswerQuestion = useCallback(
     (answer: string) => {
-      if (connStatus !== "connected") return
+      if (connStatus !== "connected" && connStatus !== "prompting") return
       const optimisticTurn: MessageTurn = {
         id: `optimistic-${randomUUID()}`,
         role: "user",
@@ -864,6 +864,7 @@ const ConversationTabView = memo(function ConversationTabView({
       detailLoading={detailLoading}
       detailError={detailError}
       hideEmptyState={!hasPersistedConversation || hasSentMessage}
+      onAnswerQuestion={handleAnswerQuestion}
     />
   )
 

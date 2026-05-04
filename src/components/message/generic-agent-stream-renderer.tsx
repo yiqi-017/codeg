@@ -42,23 +42,30 @@ const StreamToolBlock = memo(function StreamToolBlock({
   toolParams,
   output,
   running,
+  onAnswer,
 }: {
   content: string
   toolName: string
   toolParams?: string
   output?: string
   running?: boolean
+  onAnswer?: (answer: string) => void
 }) {
   const [userToggled, setUserToggled] = useState(false)
+  const [answered, setAnswered] = useState(false)
+  const [customInput, setCustomInput] = useState("")
   const isAskUser = /^ask.?user/i.test(toolName)
   const expanded = userToggled ? !running : !!running
 
   const questionData = useMemo(() => {
     if (!isAskUser) return null
-    const fenceMatch = content.match(/`{3,}\w*\n([\s\S]*?)`{3,}/)
+    const source = toolParams || content
+    const fenceMatch = source.match(/`{3,}\w*\n([\s\S]*?)`{3,}/)
     const raw = fenceMatch ? fenceMatch[1].trim() : null
     const jsonStr =
-      raw || content.match(/\{[\s\S]*?"question"[\s\S]*?\}\s*$/m)?.[0]
+      raw ||
+      source.match(/\{[\s\S]*?"question"[\s\S]*?\}\s*$/m)?.[0] ||
+      toolParams?.trim()
     if (!jsonStr) return null
     try {
       const parsed = JSON.parse(jsonStr)
@@ -74,9 +81,15 @@ const StreamToolBlock = memo(function StreamToolBlock({
     } catch {
       return null
     }
-  }, [content, isAskUser])
+  }, [content, toolParams, isAskUser])
 
   const params = isAskUser ? null : toolParams || null
+
+  const handleAnswer = (text: string) => {
+    if (answered || !onAnswer || !text.trim()) return
+    setAnswered(true)
+    onAnswer(text.trim())
+  }
 
   if (questionData) {
     return (
@@ -85,18 +98,50 @@ const StreamToolBlock = memo(function StreamToolBlock({
         {questionData.candidates.length > 0 && (
           <div className="flex flex-col gap-1.5">
             {questionData.candidates.map((c, i) => (
-              <div
+              <button
                 key={i}
-                className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+                disabled={answered}
+                onClick={() => handleAnswer(c)}
+                className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-left text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50 disabled:cursor-default"
               >
                 {c}
-              </div>
+              </button>
             ))}
           </div>
         )}
-        <div className="text-xs text-muted-foreground/60 italic">
-          Waiting for your answer …
-        </div>
+        {!answered && (
+          <div className="flex gap-2 pt-1">
+            <input
+              type="text"
+              value={customInput}
+              onChange={(e) => setCustomInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  handleAnswer(customInput)
+                }
+              }}
+              placeholder="Or type your own answer…"
+              className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
+            <button
+              disabled={!customInput.trim()}
+              onClick={() => handleAnswer(customInput)}
+              className="rounded-md bg-amber-500/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500 transition-colors disabled:opacity-40"
+            >
+              Send
+            </button>
+          </div>
+        )}
+        {answered ? (
+          <div className="text-xs text-muted-foreground/60 italic">
+            Answered
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground/60 italic">
+            Waiting for your answer …
+          </div>
+        )}
       </div>
     )
   }
@@ -155,7 +200,11 @@ const StreamToolBlock = memo(function StreamToolBlock({
   )
 })
 
-function renderStreamBlocks(blocks: StreamParsedBlock[], isStreaming: boolean) {
+function renderStreamBlocks(
+  blocks: StreamParsedBlock[],
+  isStreaming: boolean,
+  onAnswer?: (answer: string) => void
+) {
   const elements: React.ReactNode[] = []
 
   for (let i = 0; i < blocks.length; i++) {
@@ -192,6 +241,7 @@ function renderStreamBlocks(blocks: StreamParsedBlock[], isStreaming: boolean) {
             toolParams={block.toolParams}
             output={output}
             running={isRunning}
+            onAnswer={onAnswer}
           />
         )
         break
@@ -221,7 +271,13 @@ function renderStreamBlocks(blocks: StreamParsedBlock[], isStreaming: boolean) {
 }
 
 export const GenericAgentStreamRenderer = memo(
-  function GenericAgentStreamRenderer({ text }: { text: string }) {
+  function GenericAgentStreamRenderer({
+    text,
+    onAnswer,
+  }: {
+    text: string
+    onAnswer?: (answer: string) => void
+  }) {
     const blocks = useMemo(() => parseStreamBlocks(text), [text])
 
     if (blocks.length === 0) {
@@ -233,6 +289,6 @@ export const GenericAgentStreamRenderer = memo(
       )
     }
 
-    return <div>{renderStreamBlocks(blocks, true)}</div>
+    return <div>{renderStreamBlocks(blocks, true, onAnswer)}</div>
   }
 )

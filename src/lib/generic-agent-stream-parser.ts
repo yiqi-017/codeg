@@ -21,9 +21,9 @@ const SUMMARY_RE = /<summary[\s>][\s\S]*?<\/summary\s*>/
 const TOOL_USE_RE = /<tool_(?:use|call)[\s>]([\s\S]*?)<\/tool_(?:use|call)\s*>/
 const FILE_CONTENT_RE = /<file_content[\s>][\s\S]*?<\/file_content\s*>/
 const TOOL_EMOJI_RE =
-  /\u{1F6E0}️\s*\*{0,2}(?:正在调用工具:|Tool:)\*{0,2}\s*`?([^`\n]+?)`?\s+📥[^\n]*\n(`{3,})\w*\n([\s\S]*?)\2(?:\n(?!\u{1F6E0}️)[^\n]*)*/u
+  /\u{1F6E0}️\s*\*{0,2}(?:正在调用工具:|Tool:)\*{0,2}\s*`?([^`\n]+?)`?\s+📥[^\n]*\n(`{3,})\w*\n([\s\S]*?)\2(?:\n(?!\u{1F6E0}️)(?!`{5,})[^\n]*)*/u
 const TOOL_EMOJI_NOPARAM_RE =
-  /\u{1F6E0}️\s*\*{0,2}(?:正在调用工具:|Tool:)\*{0,2}\s*`?([^`\n]+?)`?(?:\s+📥|\s*$)[^\n]*(?:\n`{3,}\w*\n([\s\S]*))?$/u
+  /\u{1F6E0}️\s*\*{0,2}(?:正在调用工具:|Tool:)\*{0,2}\s*`?([^`\n]+?)`?(?:\s+📥|\s*$)[^\n]*(?:\n`{3,}\w*\n([\s\S]*?))?(?=\n\u{1F6E0}️|\n\*{0,2}LLM Running|$)/u
 const TOOL_OUTPUT_RE = /`{5,}\n([\s\S]*?)`{5,}/
 const THINKING_OPEN_RE = /<think(?:ing)?[\s>]([\s\S]*)$/
 const STRAY_XML_RE =

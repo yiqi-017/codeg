@@ -1647,8 +1647,7 @@ function QuestionToolInput({
   input: Record<string, unknown>
   output?: string | null
 }) {
-  const question =
-    typeof input.question === "string" ? input.question : null
+  const question = typeof input.question === "string" ? input.question : null
   const candidates: string[] = Array.isArray(input.candidates)
     ? (input.candidates as string[]).filter((c) => typeof c === "string")
     : []
@@ -2459,6 +2458,7 @@ interface ContentPartsRendererProps {
   role?: MessageRole
   agentType?: import("@/lib/types").AgentType
   isStreaming?: boolean
+  onAnswer?: (answer: string) => void
 }
 
 export const ContentPartsRenderer = memo(function ContentPartsRenderer({
@@ -2466,6 +2466,7 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
   role,
   agentType,
   isStreaming,
+  onAnswer,
 }: ContentPartsRendererProps) {
   return (
     <div className="space-y-4">
@@ -2477,6 +2478,7 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
                 <GenericAgentStreamRenderer
                   key={`ga-stream-${i}`}
                   text={part.text}
+                  onAnswer={onAnswer}
                 />
               )
             }
@@ -2485,6 +2487,7 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
                 <GenericAgentTextRenderer
                   key={`ga-text-${i}`}
                   text={part.text}
+                  onAnswer={onAnswer}
                 />
               )
             }
