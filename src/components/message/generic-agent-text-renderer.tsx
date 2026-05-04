@@ -14,12 +14,12 @@ const BACKTICK_BLOCK_RE = /`{4,}[\s\S]*?`{4,}/g
 const STRAY_XML_RE =
   /<\s*\/?\s*(?:think(?:ing)?|summary|tool_(?:use|call|result)|file_content|history|key_info)\s*\/?>/gi
 
-interface TurnSegment {
+export interface TurnSegment {
   marker: string
   content: string
 }
 
-function parseTurnSegments(text: string): TurnSegment[] | null {
+export function parseTurnSegments(text: string): TurnSegment[] | null {
   const placeholders: string[] = []
   const safe = text.replace(BACKTICK_BLOCK_RE, (m) => {
     placeholders.push(m)
@@ -593,7 +593,7 @@ function renderProcessedContent(
   )
 }
 
-const CollapsedTurn = memo(function CollapsedTurn({
+export const CollapsedTurn = memo(function CollapsedTurn({
   segment,
   turnIndex,
 }: {

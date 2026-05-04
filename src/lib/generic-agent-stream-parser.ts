@@ -5,6 +5,7 @@ export type StreamBlockType =
   | "tool_call"
   | "tool_output"
   | "turn_marker"
+  | "summary"
 
 export interface StreamParsedBlock {
   type: StreamBlockType
@@ -17,7 +18,7 @@ export interface StreamParsedBlock {
 
 const TURN_RE = /\*{0,2}LLM Running \(Turn (\d+)\)[^*]*\*{0,2}/
 const THINKING_CLOSED_RE = /<think(?:ing)?[\s>]([\s\S]*?)<\/think(?:ing)?\s*>/
-const SUMMARY_RE = /<summary[\s>][\s\S]*?<\/summary\s*>/
+const SUMMARY_RE = /<summary[\s>]\s*([\s\S]*?)\s*<\/summary\s*>/
 const FILE_CONTENT_RE = /<file_content[\s>][\s\S]*?<\/file_content\s*>/
 const TOOL_EMOJI_RE =
   /\u{1F6E0}️\s*\*{0,2}(?:正在调用工具:|Tool:)\*{0,2}\s*`?([^`\n]+?)`?\s+📥[^\n]*\n(`{3,})\w*\n([\s\S]*?)\2(?:\n(?!\u{1F6E0}️)(?!`{5,})[^\n]*)*/u
@@ -73,7 +74,7 @@ export function parseStreamBlocks(raw: string): StreamParsedBlock[] {
       candidates.push({
         idx: sumMatch.index,
         len: sumMatch[0].length,
-        block: { type: "text", content: "" },
+        block: { type: "summary", content: sumMatch[1]?.trim() ?? "" },
       })
     }
 
@@ -172,7 +173,11 @@ export function parseStreamBlocks(raw: string): StreamParsedBlock[] {
       }
     }
 
-    if (winner.block.content || winner.block.type === "turn_marker") {
+    if (
+      winner.block.content ||
+      winner.block.type === "turn_marker" ||
+      winner.block.type === "summary"
+    ) {
       blocks.push(winner.block)
     }
     remaining = remaining.slice(winner.idx + winner.len)
