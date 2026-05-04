@@ -106,10 +106,12 @@ function preprocessTurnContent(content: string): ProcessedContent {
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim()
 
   // Strip internal retry warnings — these are noise, not user-facing content.
-  cleaned = cleaned.replace(
-    /\[Warn\] LLM returned an empty response\. Retrying\.\.\.[\n]*/g,
-    ""
-  ).trim()
+  cleaned = cleaned
+    .replace(
+      /\[Warn\] LLM returned an empty response\. Retrying\.\.\.[\n]*/g,
+      ""
+    )
+    .trim()
 
   // Strip trailing orphan markdown markers (*, _, **) left after tag/fence removal.
   cleaned = cleaned.replace(/[\s*_]+$/, "").trim()
@@ -135,7 +137,7 @@ function preprocessTurnContent(content: string): ProcessedContent {
   return { thinkingBlocks, cleanedContent: cleaned, hasEndMarker }
 }
 
-const ThinkingBlock = memo(function ThinkingBlock({
+export const ThinkingBlock = memo(function ThinkingBlock({
   content,
 }: {
   content: string
@@ -182,7 +184,7 @@ interface ContentSegment {
 }
 
 function splitToolBlocks(content: string): ContentSegment[] {
-  const toolRe = /^🛠️ Tool: `([^`]+)`.*$/m
+  const toolRe = /^🛠️ Tool: `?([^`\n]+?)`?(?:\s|$).*$/m
   const segments: ContentSegment[] = []
   let remaining = content
 
@@ -202,9 +204,10 @@ function splitToolBlocks(content: string): ContentSegment[] {
 
     const afterHeader = remaining.slice(match.index)
     const nextMatch = afterHeader.slice(1).match(toolRe)
-    const toolBlock = nextMatch?.index !== undefined
-      ? afterHeader.slice(0, nextMatch.index + 1)
-      : afterHeader
+    const toolBlock =
+      nextMatch?.index !== undefined
+        ? afterHeader.slice(0, nextMatch.index + 1)
+        : afterHeader
 
     segments.push({
       type: "tool",
@@ -212,15 +215,16 @@ function splitToolBlocks(content: string): ContentSegment[] {
       toolName: match[1],
     })
 
-    remaining = nextMatch?.index !== undefined
-      ? afterHeader.slice(nextMatch.index + 1)
-      : ""
+    remaining =
+      nextMatch?.index !== undefined
+        ? afterHeader.slice(nextMatch.index + 1)
+        : ""
   }
 
   return segments
 }
 
-const ToolBlock = memo(function ToolBlock({
+export const ToolBlock = memo(function ToolBlock({
   content,
   toolName,
 }: {
@@ -229,12 +233,58 @@ const ToolBlock = memo(function ToolBlock({
 }) {
   const [expanded, setExpanded] = useState(false)
 
+  const isAskUser = /^ask.?user/i.test(toolName)
+
+  const questionData = useMemo(() => {
+    if (!isAskUser) return null
+    const fenceMatch = content.match(/`{3,}\w*\n([\s\S]*?)`{3,}/)
+    const raw = fenceMatch ? fenceMatch[1].trim() : null
+    const jsonStr =
+      raw || content.match(/\{[\s\S]*?"question"[\s\S]*?\}\s*$/m)?.[0]
+    if (!jsonStr) return null
+    try {
+      const parsed = JSON.parse(jsonStr)
+      const question =
+        typeof parsed.question === "string" ? parsed.question : null
+      const candidates: string[] = Array.isArray(parsed.candidates)
+        ? (parsed.candidates as string[]).filter(
+            (c: unknown) => typeof c === "string",
+          )
+        : []
+      if (!question) return null
+      return { question, candidates }
+    } catch {
+      return null
+    }
+  }, [content, isAskUser])
+
   const statusLine = useMemo(() => {
-    const m = content.match(
-      /\[(?:Status|Action)\]\s*(.+)/
-    )
+    const m = content.match(/\[(?:Status|Action)\]\s*(.+)/)
     return m?.[1]?.trim() ?? null
   }, [content])
+
+  if (questionData) {
+    return (
+      <div className="rounded border border-amber-500/25 bg-amber-500/5 my-1.5 px-3 py-2.5 space-y-2">
+        <p className="text-sm font-medium">{questionData.question}</p>
+        {questionData.candidates.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            {questionData.candidates.map((c, i) => (
+              <div
+                key={i}
+                className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+              >
+                {c}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="text-xs text-muted-foreground/60 italic">
+          Waiting for your answer …
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="rounded border border-blue-500/20 bg-blue-500/5 my-1.5">
@@ -268,7 +318,7 @@ const ToolBlock = memo(function ToolBlock({
 const ACTION_BLOCK_RE =
   /(\[Action\][^\n]*(?:\n(?!\[Action\]|🛠️ Tool:)[^\n]*)*)/g
 
-const CollapsibleActionBlock = memo(function CollapsibleActionBlock({
+export const CollapsibleActionBlock = memo(function CollapsibleActionBlock({
   content,
 }: {
   content: string
@@ -355,7 +405,7 @@ function splitCodeBlocks(text: string): TextOrCode[] {
   return result
 }
 
-const CollapsibleCodeBlock = memo(function CollapsibleCodeBlock({
+export const CollapsibleCodeBlock = memo(function CollapsibleCodeBlock({
   content,
   lang,
 }: {
@@ -369,7 +419,8 @@ const CollapsibleCodeBlock = memo(function CollapsibleCodeBlock({
   const trimmedFirst = content.trimStart()
 
   const isArgs = lang === "text" && trimmedFirst.startsWith("{")
-  const isAction = /^\[Action\]/.test(trimmedFirst) || /^\[Status\]/.test(trimmedFirst)
+  const isAction =
+    /^\[Action\]/.test(trimmedFirst) || /^\[Status\]/.test(trimmedFirst)
 
   const label = isArgs
     ? "📥 args"
@@ -388,12 +439,8 @@ const CollapsibleCodeBlock = memo(function CollapsibleCodeBlock({
   const borderClass = isAction
     ? "border-emerald-500/25 bg-emerald-500/5"
     : "border-border/40 bg-muted/30"
-  const hoverClass = isAction
-    ? "hover:bg-emerald-500/10"
-    : "hover:bg-muted/50"
-  const chevronClass = isAction
-    ? "text-emerald-500"
-    : "text-muted-foreground"
+  const hoverClass = isAction ? "hover:bg-emerald-500/10" : "hover:bg-muted/50"
+  const chevronClass = isAction ? "text-emerald-500" : "text-muted-foreground"
   const labelClass = isAction
     ? "font-medium text-emerald-600 dark:text-emerald-400"
     : "text-muted-foreground"
@@ -409,9 +456,7 @@ const CollapsibleCodeBlock = memo(function CollapsibleCodeBlock({
         ) : (
           <ChevronRight className={`h-3 w-3 shrink-0 ${chevronClass}`} />
         )}
-        <span className={labelClass}>
-          {label}
-        </span>
+        <span className={labelClass}>{label}</span>
         <span className="shrink-0 text-muted-foreground/50">
           {lineCount} lines
         </span>
@@ -467,7 +512,7 @@ function renderTextSegment(text: string, key?: number) {
   )
 }
 
-function renderTextWithCodeBlocks(text: string) {
+export function renderTextWithCodeBlocks(text: string) {
   const parts = splitCodeBlocks(text)
   if (parts.length === 0) return null
   if (parts.length === 1 && parts[0].type === "text") {
@@ -502,9 +547,7 @@ function renderProcessedContent(content: string) {
             toolName={seg.toolName!}
           />
         ) : (
-          <div key={`text-${i}`}>
-            {renderTextWithCodeBlocks(seg.content)}
-          </div>
+          <div key={`text-${i}`}>{renderTextWithCodeBlocks(seg.content)}</div>
         )
       )}
     </>
@@ -572,50 +615,52 @@ const CollapsedTurn = memo(function CollapsedTurn({
   )
 })
 
-export const GenericAgentTextRenderer = memo(
-  function GenericAgentTextRenderer({ text }: { text: string }) {
-    const segments = useMemo(() => parseTurnSegments(text), [text])
+export const GenericAgentTextRenderer = memo(function GenericAgentTextRenderer({
+  text,
+}: {
+  text: string
+}) {
+  const segments = useMemo(() => parseTurnSegments(text), [text])
 
-    if (!segments) {
-      const processed = preprocessTurnContent(text)
-      return (
-        <div>
-          {processed.thinkingBlocks.map((tb, i) => (
-            <ThinkingBlock key={i} content={tb} />
-          ))}
-          {renderProcessedContent(processed.cleanedContent)}
-          {processed.hasEndMarker && <FinalResponseMarker />}
-        </div>
-      )
-    }
-
-    const lastIdx = segments.length - 1
+  if (!segments) {
+    const processed = preprocessTurnContent(text)
     return (
       <div>
-        {segments.map((seg, i) => {
-          const processed = preprocessTurnContent(seg.content)
-          const isEmpty =
-            !processed.cleanedContent &&
-            processed.thinkingBlocks.length === 0 &&
-            !processed.hasEndMarker
-          if (isEmpty) return null
-          if (i < lastIdx) {
-            return <CollapsedTurn key={i} segment={seg} turnIndex={i + 1} />
-          }
-          return (
-            <div key={i}>
-              <div className="text-xs font-medium text-muted-foreground px-1 py-1 mt-2">
-                {seg.marker.replace(/\*/g, "")}
-              </div>
-              {processed.thinkingBlocks.map((tb, j) => (
-                <ThinkingBlock key={j} content={tb} />
-              ))}
-              {renderProcessedContent(processed.cleanedContent)}
-              {processed.hasEndMarker && <FinalResponseMarker />}
-            </div>
-          )
-        })}
+        {processed.thinkingBlocks.map((tb, i) => (
+          <ThinkingBlock key={i} content={tb} />
+        ))}
+        {renderProcessedContent(processed.cleanedContent)}
+        {processed.hasEndMarker && <FinalResponseMarker />}
       </div>
     )
   }
-)
+
+  const lastIdx = segments.length - 1
+  return (
+    <div>
+      {segments.map((seg, i) => {
+        const processed = preprocessTurnContent(seg.content)
+        const isEmpty =
+          !processed.cleanedContent &&
+          processed.thinkingBlocks.length === 0 &&
+          !processed.hasEndMarker
+        if (isEmpty) return null
+        if (i < lastIdx) {
+          return <CollapsedTurn key={i} segment={seg} turnIndex={i + 1} />
+        }
+        return (
+          <div key={i}>
+            <div className="text-xs font-medium text-muted-foreground px-1 py-1 mt-2">
+              {seg.marker.replace(/\*/g, "")}
+            </div>
+            {processed.thinkingBlocks.map((tb, j) => (
+              <ThinkingBlock key={j} content={tb} />
+            ))}
+            {renderProcessedContent(processed.cleanedContent)}
+            {processed.hasEndMarker && <FinalResponseMarker />}
+          </div>
+        )
+      })}
+    </div>
+  )
+})

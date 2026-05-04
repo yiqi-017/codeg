@@ -165,11 +165,13 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   dimmed = false,
   showStats = true,
   agentType,
+  isStreaming = false,
 }: {
   group: ResolvedMessageGroup
   dimmed?: boolean
   showStats?: boolean
   agentType?: import("@/lib/types").AgentType
+  isStreaming?: boolean
 }) {
   if (group.role === "system") {
     return <CollapsibleSystemMessage group={group} />
@@ -194,6 +196,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
               parts={group.parts}
               role={group.role}
               agentType={agentType}
+              isStreaming={isStreaming}
             />
           </MessageContent>
         )}
@@ -397,6 +400,7 @@ export function MessageListView({
                 dimmed={item.phase === "optimistic"}
                 showStats={item.showStats}
                 agentType={agentType}
+                isStreaming={item.phase === "streaming"}
               />
             </div>
           )

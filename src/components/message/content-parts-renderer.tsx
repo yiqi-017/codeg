@@ -26,6 +26,7 @@ import {
 } from "@/components/ai-elements/reasoning"
 import { AgentToolCallPart } from "./agent-tool-call"
 import { GenericAgentTextRenderer } from "./generic-agent-text-renderer"
+import { GenericAgentStreamRenderer } from "./generic-agent-stream-renderer"
 import {
   FileTextIcon,
   FilePenLineIcon,
@@ -1637,6 +1638,56 @@ function SwitchModeToolInput({ input }: { input: Record<string, unknown> }) {
   )
 }
 
+// ── Question / ask_user ─────────────────────────────────────────────
+
+function QuestionToolInput({
+  input,
+  output,
+}: {
+  input: Record<string, unknown>
+  output?: string | null
+}) {
+  const question =
+    typeof input.question === "string" ? input.question : null
+  const candidates: string[] = Array.isArray(input.candidates)
+    ? (input.candidates as string[]).filter((c) => typeof c === "string")
+    : []
+
+  if (!question) return <GenericToolInput input={JSON.stringify(input)} />
+
+  const answer = output?.trim() ?? null
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">{question}</p>
+      {candidates.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {candidates.map((c, i) => {
+            const isSelected = answer !== null && answer === c
+            return (
+              <div
+                key={i}
+                className={`rounded-md border px-3 py-2 text-xs ${
+                  isSelected
+                    ? "border-primary bg-primary/10 font-medium"
+                    : "border-border/60 bg-muted/30 text-muted-foreground"
+                }`}
+              >
+                {c}
+              </div>
+            )
+          })}
+        </div>
+      )}
+      {answer && !candidates.includes(answer) && (
+        <div className="rounded-md border border-primary bg-primary/10 px-3 py-2 text-xs font-medium">
+          {answer}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Generic structured input (fallback) ──────────────────────────────
 
 /** Fields that typically contain code / long text → render in code blocks */
@@ -1850,6 +1901,8 @@ function StructuredToolInput({
       return <SwitchModeToolInput input={parsed} />
     }
   }
+  if (name === "question")
+    return <QuestionToolInput input={parsed} output={output} />
 
   return <GenericToolInput input={input} />
 }
@@ -2405,25 +2458,36 @@ interface ContentPartsRendererProps {
   parts: AdaptedContentPart[]
   role?: MessageRole
   agentType?: import("@/lib/types").AgentType
+  isStreaming?: boolean
 }
 
 export const ContentPartsRenderer = memo(function ContentPartsRenderer({
   parts,
   role,
   agentType,
+  isStreaming,
 }: ContentPartsRendererProps) {
   return (
     <div className="space-y-4">
       {parts.map((part, i) => {
         if (part.type === "text") {
-          if (
-            agentType === "generic_agent" &&
-            role !== "user" &&
-            part.text.includes("LLM Running (Turn")
-          ) {
-            return (
-              <GenericAgentTextRenderer key={`ga-text-${i}`} text={part.text} />
-            )
+          if (agentType === "generic_agent" && role !== "user") {
+            if (isStreaming) {
+              return (
+                <GenericAgentStreamRenderer
+                  key={`ga-stream-${i}`}
+                  text={part.text}
+                />
+              )
+            }
+            if (part.text.includes("LLM Running (Turn")) {
+              return (
+                <GenericAgentTextRenderer
+                  key={`ga-text-${i}`}
+                  text={part.text}
+                />
+              )
+            }
           }
           return (
             <TextPart
