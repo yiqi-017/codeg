@@ -51,11 +51,11 @@ const StreamToolBlock = memo(function StreamToolBlock({
   running?: boolean
   onAnswer?: (answer: string) => void
 }) {
-  const [userToggled, setUserToggled] = useState(false)
+  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null)
   const [answered, setAnswered] = useState(false)
   const [customInput, setCustomInput] = useState("")
   const isAskUser = /^ask.?user/i.test(toolName)
-  const expanded = userToggled ? !running : !!running
+  const expanded = manualExpanded ?? !!running
 
   const questionData = useMemo(() => {
     if (!isAskUser) return null
@@ -149,7 +149,7 @@ const StreamToolBlock = memo(function StreamToolBlock({
   return (
     <div className="rounded border border-blue-500/20 bg-blue-500/5 my-1.5 overflow-hidden">
       <button
-        onClick={() => setUserToggled(!userToggled)}
+        onClick={() => setManualExpanded(expanded ? false : true)}
         className="flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left text-xs hover:bg-blue-500/10 transition-colors"
       >
         {expanded ? (
@@ -200,70 +200,178 @@ const StreamToolBlock = memo(function StreamToolBlock({
   )
 })
 
+const CollapsedStreamTurn = memo(function CollapsedStreamTurn({
+  turnNumber,
+  children,
+  toolCount,
+}: {
+  turnNumber: number
+  children: React.ReactNode[]
+  toolCount: number
+}) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="rounded-md border border-border/70 shadow-sm my-2">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 w-full px-3 py-2 text-left text-sm hover:bg-muted/50 transition-colors"
+      >
+        {expanded ? (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-foreground/50" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-foreground/50" />
+        )}
+        <span className="text-xs font-semibold text-foreground/70">
+          Turn {turnNumber}
+        </span>
+        {!expanded && toolCount > 0 && (
+          <span className="shrink-0 text-xs text-foreground/40">
+            {toolCount} tool call{toolCount > 1 ? "s" : ""}
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div className="px-3 pb-3 border-t border-border/40">{children}</div>
+      )}
+    </div>
+  )
+})
+
+function renderSingleBlock(
+  block: StreamParsedBlock,
+  i: number,
+  blocks: StreamParsedBlock[],
+  isStreaming: boolean,
+  onAnswer?: (answer: string) => void,
+  skipRef?: { current: number }
+): React.ReactNode {
+  const key = `stream-block-${i}`
+  switch (block.type) {
+    case "turn_marker":
+      return null
+    case "thinking":
+      return <ThinkingBlock key={key} content={block.content} />
+    case "thinking_open":
+      return <OpenThinkingBlock key={key} content={block.content} />
+    case "tool_call": {
+      const next = i + 1 < blocks.length ? blocks[i + 1] : undefined
+      const output = next?.type === "tool_output" ? next.content : undefined
+      if (output && skipRef) skipRef.current = i + 1
+      const isLast = (output ? i + 1 : i) >= blocks.length - 1
+      const isRunning = isStreaming && !output && (block.running || isLast)
+      return (
+        <StreamToolBlock
+          key={key}
+          content={block.content}
+          toolName={block.toolName ?? "unknown"}
+          toolParams={block.toolParams}
+          output={output}
+          running={isRunning}
+          onAnswer={onAnswer}
+        />
+      )
+    }
+    case "tool_output":
+      if (!block.content.trim()) return null
+      return (
+        <CollapsibleCodeBlock key={key} content={block.content} lang="text" />
+      )
+    case "text": {
+      if (!block.content.trim()) return null
+      return (
+        <div
+          key={key}
+          className="break-words text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-outside [&_ol]:list-outside [&_ul]:pl-5 [&_ol]:pl-5"
+        >
+          <MessageResponse>{block.content}</MessageResponse>
+        </div>
+      )
+    }
+    default:
+      return null
+  }
+}
+
 function renderStreamBlocks(
   blocks: StreamParsedBlock[],
   isStreaming: boolean,
   onAnswer?: (answer: string) => void
 ) {
-  const elements: React.ReactNode[] = []
-
+  const turns: {
+    turnNumber: number
+    startIdx: number
+    endIdx: number
+  }[] = []
   for (let i = 0; i < blocks.length; i++) {
-    const block = blocks[i]
-    const key = `stream-block-${i}`
+    if (blocks[i].type === "turn_marker") {
+      if (turns.length > 0) {
+        turns[turns.length - 1].endIdx = i
+      }
+      turns.push({
+        turnNumber: blocks[i].turn ?? turns.length + 1,
+        startIdx: i,
+        endIdx: blocks.length,
+      })
+    }
+  }
+  if (turns.length === 0) {
+    turns.push({ turnNumber: 1, startIdx: 0, endIdx: blocks.length })
+  } else {
+    turns[turns.length - 1].endIdx = blocks.length
+  }
 
-    switch (block.type) {
-      case "turn_marker":
-        elements.push(
-          <div
-            key={key}
-            className="text-xs font-medium text-muted-foreground px-1 py-1 mt-2"
-          >
-            {block.content.replace(/\*/g, "")}
-          </div>
+  const elements: React.ReactNode[] = []
+  const skipRef = { current: -1 }
+
+  for (let t = 0; t < turns.length; t++) {
+    const turn = turns[t]
+    const isLastTurn = t === turns.length - 1
+
+    if (isLastTurn) {
+      for (let i = turn.startIdx; i < turn.endIdx; i++) {
+        if (i === skipRef.current) continue
+        const block = blocks[i]
+        if (block.type === "turn_marker") {
+          elements.push(
+            <div
+              key={`stream-block-${i}`}
+              className="text-xs font-medium text-muted-foreground px-1 py-1 mt-2"
+            >
+              {block.content.replace(/\*/g, "")}
+            </div>
+          )
+          continue
+        }
+        const el = renderSingleBlock(
+          block,
+          i,
+          blocks,
+          isStreaming,
+          onAnswer,
+          skipRef
         )
-        break
-      case "thinking":
-        elements.push(<ThinkingBlock key={key} content={block.content} />)
-        break
-      case "thinking_open":
-        elements.push(<OpenThinkingBlock key={key} content={block.content} />)
-        break
-      case "tool_call": {
-        const next = i + 1 < blocks.length ? blocks[i + 1] : undefined
-        const output = next?.type === "tool_output" ? next.content : undefined
-        if (output) i++
-        const isRunning = isStreaming && (block.running || !output)
-        elements.push(
-          <StreamToolBlock
-            key={key}
-            content={block.content}
-            toolName={block.toolName ?? "unknown"}
-            toolParams={block.toolParams}
-            output={output}
-            running={isRunning}
-            onAnswer={onAnswer}
-          />
-        )
-        break
+        if (el) elements.push(el)
       }
-      case "tool_output":
-        if (!block.content.trim()) break
-        elements.push(
-          <CollapsibleCodeBlock key={key} content={block.content} lang="text" />
-        )
-        break
-      case "text": {
-        if (!block.content.trim()) break
-        elements.push(
-          <div
-            key={key}
-            className="break-words text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-outside [&_ol]:list-outside [&_ul]:pl-5 [&_ol]:pl-5"
-          >
-            <MessageResponse>{block.content}</MessageResponse>
-          </div>
-        )
-        break
+    } else {
+      const turnBlocks: React.ReactNode[] = []
+      let toolCount = 0
+      for (let i = turn.startIdx; i < turn.endIdx; i++) {
+        if (i === skipRef.current) continue
+        const block = blocks[i]
+        if (block.type === "tool_call") toolCount++
+        if (block.type === "turn_marker") continue
+        const el = renderSingleBlock(block, i, blocks, false, onAnswer, skipRef)
+        if (el) turnBlocks.push(el)
       }
+      elements.push(
+        <CollapsedStreamTurn
+          key={`turn-${turn.turnNumber}`}
+          turnNumber={turn.turnNumber}
+          toolCount={toolCount}
+        >
+          {turnBlocks}
+        </CollapsedStreamTurn>
+      )
     }
   }
 
