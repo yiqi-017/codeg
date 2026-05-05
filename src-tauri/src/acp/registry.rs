@@ -60,7 +60,10 @@ pub fn find_genericagent_bridge() -> Option<PathBuf> {
         }
     }
 
-    let rel = Path::new("GenericAgent").join("genericagent_acp_bridge.py");
+    let candidates = [
+        Path::new("GenericAgent").join("frontends").join("genericagent_acp_bridge.py"),
+        Path::new("GenericAgent").join("genericagent_acp_bridge.py"),
+    ];
     let mut roots = Vec::new();
     if let Ok(cwd) = std::env::current_dir() {
         roots.push(cwd);
@@ -73,9 +76,11 @@ pub fn find_genericagent_bridge() -> Option<PathBuf> {
 
     for root in roots {
         for base in root.ancestors() {
-            let candidate = base.join(&rel);
-            if candidate.is_file() {
-                return Some(candidate);
+            for rel in &candidates {
+                let candidate = base.join(rel);
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
             }
         }
     }
