@@ -587,6 +587,8 @@ function reducer(
       const current = state.byConversationId.get(action.conversationId)
       if (!current) return state
 
+      console.log("[ACP][FE][COMPLETE_TURN] convId=", action.conversationId, "liveMessage=", current.liveMessage ? current.liveMessage.content.map(b => b.type === "text" ? `text(${(b as {text:string}).text.length}chars):${JSON.stringify((b as {text:string}).text.slice(-80))}` : b.type) : null)
+
       // Convert liveMessage to completed MessageTurns (split into rounds)
       const streamingTurns = current.liveMessage
         ? buildStreamingTurnsFromLiveMessage(
@@ -594,6 +596,8 @@ function reducer(
             current.liveMessage
           ).turns
         : []
+
+      console.log("[ACP][FE][COMPLETE_TURN] streamingTurns count=", streamingTurns.length, "texts=", streamingTurns.map(t => t.content?.slice(-80)))
 
       // Promote: optimisticTurns + streamingTurns → localTurns
       const promoted = [...current.localTurns, ...current.optimisticTurns]
@@ -644,6 +648,7 @@ function reducer(
           (session.detail?.turns.length ?? 0) > 0 ||
           session.localTurns.length > 0
         if (hasExistingTurns || session.detailLoading || session.syncState === "idle") {
+          console.log("[ACP][FE][SET_LIVE_MESSAGE] BLOCKED by guard, convId=", action.conversationId, "syncState=", session.syncState, "hasExistingTurns=", hasExistingTurns, "detailLoading=", session.detailLoading, "isLive=", action.isLive)
           return state
         }
       }

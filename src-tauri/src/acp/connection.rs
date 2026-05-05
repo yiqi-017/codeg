@@ -2294,6 +2294,7 @@ async fn run_conversation_loop<'a>(
                                         StopReason::Cancelled => "cancelled",
                                         _ => "unknown",
                                     };
+                                    eprintln!("[ACP][emit] TurnComplete via StopReason branch, reason={}", reason_str);
                                     emit_with_state(
                                         state,
                                         emitter,
@@ -2312,6 +2313,45 @@ async fn run_conversation_loop<'a>(
                         prompt_result = &mut prompt_response => {
                             eprintln!("[ACP][loop] prompt_response completed");
                             let reason = prompt_result?.stop_reason;
+
+                            // Drain any remaining updates still in the channel.
+                            // When tokio::select! picks prompt_response over
+                            // read_update, buffered ContentDeltas would be lost.
+                            while let Ok(Ok(msg)) = tokio::time::timeout(
+                                std::time::Duration::from_millis(50),
+                                session.read_update(),
+                            ).await {
+                                if let SessionMessage::SessionMessage(dispatch) = msg {
+                                    let h = emitter.clone();
+                                    let st = Arc::clone(state);
+                                    let cwd_opt = Some(cwd);
+                                    let _ = MatchDispatch::new(dispatch)
+                                        .if_notification(async |notif: SessionNotification| {
+                                            let should_poll_now = track_terminal_tool_calls(
+                                                &notif.update,
+                                                &mut tracked_terminal_tool_calls,
+                                            );
+                                            emit_conversation_update(&st, &h, agent_type, notif.update, cwd_opt, &mut raw_output_cache).await;
+                                            if should_poll_now {
+                                                poll_tracked_terminal_tool_calls(
+                                                    terminal_runtime.as_ref(),
+                                                    &sid,
+                                                    &st,
+                                                    &h,
+                                                    &mut tracked_terminal_tool_calls,
+                                                ).await;
+                                            }
+                                            Ok(())
+                                        })
+                                        .await
+                                        .otherwise(async |d| {
+                                            maybe_emit_claude_sdk_ext_notification(state, emitter, d).await;
+                                            Ok(())
+                                        })
+                                        .await;
+                                }
+                            }
+
                             if !tracked_terminal_tool_calls.is_empty() {
                                 poll_tracked_terminal_tool_calls(
                                     terminal_runtime.as_ref(),
@@ -2327,6 +2367,7 @@ async fn run_conversation_loop<'a>(
                                 StopReason::Cancelled => "cancelled",
                                 _ => "unknown",
                             };
+                            eprintln!("[ACP][emit] TurnComplete via prompt_response branch, reason={}", reason_str);
                             emit_with_state(
                                 state,
                                 emitter,
@@ -2834,7 +2875,7 @@ async fn emit_conversation_update(
             content: ContentBlock::Text(text),
             ..
         }) => {
-            eprintln!("[ACP][emit] ContentDelta text len={}", text.text.len());
+            eprintln!("[ACP][emit] ContentDelta text len={} raw={:?}", text.text.len(), &text.text);
             emit_with_state(
                 state,
                 emitter,

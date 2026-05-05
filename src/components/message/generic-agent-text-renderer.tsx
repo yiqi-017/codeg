@@ -661,6 +661,7 @@ export const GenericAgentTextRenderer = memo(function GenericAgentTextRenderer({
   text: string
   onAnswer?: (answer: string) => void
 }) {
+  console.log("[ACP][FE][Renderer] input text len=", text.length, "tail=", JSON.stringify(text.slice(-80)))
   const segments = useMemo(() => parseTurnSegments(text), [text])
 
   if (!segments) {
