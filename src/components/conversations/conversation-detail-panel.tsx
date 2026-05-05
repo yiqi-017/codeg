@@ -362,8 +362,10 @@ const ConversationTabView = memo(function ConversationTabView({
     prevConnStatusRef.current = connStatus
     if (!wasPrompting || connStatus === "prompting") return
 
-    // Turn completed — promote liveMessage + optimisticTurns to localTurns
-    completeTurn(effectiveConversationId)
+    // Turn completed — promote liveMessage + optimisticTurns to localTurns.
+    // Pass conn.liveMessage directly as the authoritative source — the
+    // runtime session's copy may lag behind due to React effect batching.
+    completeTurn(effectiveConversationId, conn.liveMessage)
 
     // Cancel previous metadata sync (handles rapid consecutive turns)
     syncCancelRef.current?.()
@@ -376,6 +378,7 @@ const ConversationTabView = memo(function ConversationTabView({
         effectiveConversationId
       )
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- conn.liveMessage intentionally excluded: read current value at connStatus transition, don't re-run on every streaming delta
   }, [completeTurn, connStatus, effectiveConversationId, syncTurnMetadata])
 
   // Auto-send queued messages when agent finishes responding.

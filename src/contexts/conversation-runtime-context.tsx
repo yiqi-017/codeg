@@ -91,6 +91,7 @@ type Action =
   | {
       type: "COMPLETE_TURN"
       conversationId: number
+      liveMessageOverride?: import("@/contexts/acp-connections-context").LiveMessage | null
     }
   | {
       type: "APPEND_OPTIMISTIC_TURN"
@@ -587,13 +588,18 @@ function reducer(
       const current = state.byConversationId.get(action.conversationId)
       if (!current) return state
 
-      console.log("[ACP][FE][COMPLETE_TURN] convId=", action.conversationId, "liveMessage=", current.liveMessage ? current.liveMessage.content.map(b => b.type === "text" ? `text(${(b as {text:string}).text.length}chars):${JSON.stringify((b as {text:string}).text.slice(-80))}` : b.type) : null)
+      // Prefer the authoritative liveMessage from ACP connection context
+      // over the potentially stale session.liveMessage (synced via useEffect
+      // which may lag behind high-frequency STREAM_BATCH updates).
+      const effectiveLiveMessage = action.liveMessageOverride ?? current.liveMessage
+
+      console.log("[ACP][FE][COMPLETE_TURN] convId=", action.conversationId, "using override=", !!action.liveMessageOverride, "liveMessage=", effectiveLiveMessage ? effectiveLiveMessage.content.map(b => b.type === "text" ? `text(${(b as {text:string}).text.length}chars):${JSON.stringify((b as {text:string}).text.slice(-80))}` : b.type) : null)
 
       // Convert liveMessage to completed MessageTurns (split into rounds)
-      const streamingTurns = current.liveMessage
+      const streamingTurns = effectiveLiveMessage
         ? buildStreamingTurnsFromLiveMessage(
             current.conversationId,
-            current.liveMessage
+            effectiveLiveMessage
           ).turns
         : []
 
@@ -805,7 +811,7 @@ interface ConversationRuntimeContextValue {
   getTimelineTurns: (conversationId: number) => ConversationTimelineTurn[]
   fetchDetail: (conversationId: number) => void
   refetchDetail: (conversationId: number) => void
-  completeTurn: (conversationId: number) => void
+  completeTurn: (conversationId: number, liveMessageOverride?: import("@/contexts/acp-connections-context").LiveMessage | null) => void
   appendOptimisticTurn: (
     conversationId: number,
     turn: MessageTurn,
@@ -1046,8 +1052,8 @@ export function ConversationRuntimeProvider({
     []
   )
 
-  const completeTurn = useCallback((conversationId: number) => {
-    dispatch({ type: "COMPLETE_TURN", conversationId })
+  const completeTurn = useCallback((conversationId: number, liveMessageOverride?: import("@/contexts/acp-connections-context").LiveMessage | null) => {
+    dispatch({ type: "COMPLETE_TURN", conversationId, liveMessageOverride })
   }, [])
 
   const appendOptimisticTurn = useCallback(
